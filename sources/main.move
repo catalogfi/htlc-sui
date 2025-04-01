@@ -18,7 +18,7 @@ module atomic_swapv1::AtomicSwap {
     const ESECRET_MISMATCH: u64 = 4;
     const ECREATED_SWAP_NOT_OURS: u64 = 5;
     const ESWAP_ALREADY_REDEEMED_OR_REFUNDED: u64 = 6;
-
+    const EORDER_NOT_FOUND: u64 = 7;
     // The Order struct
     public struct Order<phantom CoinType: drop> has key {
         id: UID,
@@ -188,11 +188,13 @@ module atomic_swapv1::AtomicSwap {
         assert!(clock::timestamp_ms(clock) >= order.timelock + order.initiated_at, ESWAP_EXPIRED);
 
         // Ensure that the secret sent, after hashing, is same as the hashed_secret we have stored
-        assert!(order.secret_hash == hash::sha2_256(secret), ESECRET_MISMATCH);
+        let secret_hash = hash::sha2_256(secret);
+        assert!(order.secret_hash == secret_hash, ESECRET_MISMATCH);
 
-        let calc_order_id = create_order_id(secret, order.initiator);
-        let calc_object_id = orders_reg.orders.borrow(calc_order_id);
-        assert(calc_object_id == order.id.uid_to_inner(), 0);
+        let calc_order_id = create_order_id(secret_hash, order.initiator);
+        assert!(table::contains(&orders_reg.orders, calc_order_id), EORDER_NOT_FOUND);
+        let calc_object_id = *table::borrow(&orders_reg.orders, calc_order_id);
+        assert!(calc_object_id == order.id.uid_to_inner(), 0);
 
         assert!(order.is_fulfilled == false, ESWAP_ALREADY_REDEEMED_OR_REFUNDED);
 
@@ -213,6 +215,7 @@ module atomic_swapv1::AtomicSwap {
             redeemer
         );
 
+        order.is_fulfilled = true;
         // Emit event
         event::emit(Redeemed {
             order_id: object::uid_to_inner(&order.id),
