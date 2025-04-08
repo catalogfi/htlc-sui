@@ -10,6 +10,7 @@ module atomic_swapv1::AtomicSwap {
     use 0x1::hash;                                  // To hash the secret, for the case of redeeming
     use sui::address;
     use sui::ecdsa_k1;
+    use sui::object_table::{Self, ObjectTable};
     // Error codes, self-explanatory
     const ENOT_ENOUGH_BALANCE: u64 = 1;
     const ESWAP_EXPIRED: u64 = 2;
@@ -22,7 +23,7 @@ module atomic_swapv1::AtomicSwap {
 
     const REFUND_TYPEHASH: vector<u8> = b"Refund(bytes32 orderId)";
     // The Order struct
-    public struct Order<phantom CoinType: drop> has key {
+    public struct Order<phantom CoinType> has key, store {
         id: UID,
         is_fulfilled: bool,
         initiator: address,
@@ -34,10 +35,12 @@ module atomic_swapv1::AtomicSwap {
         secret_hash: vector<u8>
     }
 
-    public struct OrdersRegistry has key, store {
+    public struct OrdersRegistry<phantom CoinType> has key, store {
         id: UID,
-        orders: Table<vector<u8>, ID>
+        orders: ObjectTable<vector<u8>, Order<CoinType>>
     }
+
+    // public struct AdminCap has key { id: UID }
 
     // --------------------------------------- Event Structs ---------------------------------------
 
@@ -64,20 +67,20 @@ module atomic_swapv1::AtomicSwap {
     }
 
     fun init(ctx: &mut TxContext) {
-            let orders_reg = OrdersRegistry {
-                id: object::new(ctx),
-                orders: table::new(ctx)
-            };
-            transfer::share_object(orders_reg);
-        }
+        // transfer::transfer(
+        //     AdminCap { id: object::new(ctx) },
+        //     ctx.sender()
+        // );
+    }
 
-    public fun create_orders_registry(ctx: &mut TxContext) {
-        let orders_reg = OrdersRegistry {
+    public fun create_orders_registry<CoinType>(ctx: &mut TxContext): ID{
+        let orders_reg = OrdersRegistry<CoinType> {
             id: object::new(ctx),
-            orders: table::new(ctx)
+            orders: object_table::new(ctx)
         };
-
+        let orders_reg_id = object::uid_to_inner(&orders_reg.id);
         transfer::share_object(orders_reg);
+        orders_reg_id
     }
 
     public fun create_order_id(secret_hash: vector<u8>, initiator: address): vector<u8> {
@@ -96,8 +99,8 @@ module atomic_swapv1::AtomicSwap {
         hash_result
     }
     // Creates a order object and makes it a shared_object
-    public fun initialize_Swap<CoinType: drop>(
-        orders_reg: &mut OrdersRegistry,
+    public fun initialize_Swap<CoinType>(
+        orders_reg: &mut OrdersRegistry<CoinType>,
         redeemer: address,
         secret_hash: vector<u8>,
         amount: u64, 
@@ -105,7 +108,7 @@ module atomic_swapv1::AtomicSwap {
         coins: Coin<CoinType>,
         clock: &Clock,
         ctx: &mut TxContext
-    ) {
+    ): vector<u8> {
         // Check that value of coins exceeds amount in order
         assert!(coin::value<CoinType>(&coins) >= amount, ENOT_ENOUGH_BALANCE);
 
@@ -125,33 +128,36 @@ module atomic_swapv1::AtomicSwap {
         // get the required amount out of the users balance
         let order = Order {
             id: id,
-            initiator: tx_context::sender(ctx),                                    // The address of the initiator 
-            is_fulfilled: false,                                                             // Create a new ID for the object
+            initiator: tx_context::sender(ctx),                                 // The address of the initiator 
+            is_fulfilled: false,                                                // Create a new ID for the object
             redeemer: redeemer,                                                 // The address of the redeemer
-            amount: amount,
+            amount: amount,                                                     // The amount being locked for swap
             secret_hash: secret_hash,                                           // The hashed secret
-            initiated_at: clock::timestamp_ms(clock),                                                      // The amount to be transferred
+            initiated_at: clock::timestamp_ms(clock),                           // The amount to be transferred
             coins,                                                              // The coins where value(coins) == amount
-            timelock       // THe expiry, being (timelock) hours away from initialization time
+            timelock                                                            // THe expiry, being (timelock) hours away from initialization time
         };
         
         ////////////////
         // let obj_id = order.borrow_uid();
         ////////////////
 
-        orders_reg.orders.add(order_id, object_id);
+        orders_reg.orders.add(order_id, order);
         // Share the object so anyone can access nad mutate it
-        transfer::share_object<Order<CoinType>>(order);
+        // transfer::share_object<Order<CoinType>>(order);
+        order_id
     }
 
     // Refunds the coins and destroys Order object
-    public fun refund_Swap<CoinType: drop>(
-        order: &mut Order<CoinType>,
+    public fun refund_Swap<CoinType>(
+        orders_reg: &mut OrdersRegistry<CoinType>,
+        order_id: vector<u8>,
         clock: &Clock,
         ctx: &mut TxContext
     ){
+        let mut order = object_table::borrow_mut(&mut orders_reg.orders, order_id);
         // Makes sure that order has expired
-        assert!(order.initiated_at + order.timelock < clock::timestamp_ms(clock), ESWAP_NOT_EXPIRED);
+        assert!(clock::timestamp_ms(clock) >= order.initiated_at + order.timelock, ESWAP_NOT_EXPIRED);
         assert!(order.is_fulfilled == false, ESWAP_ALREADY_REDEEMED_OR_REFUNDED);
         // If coins are 0, then order has been used
         assert!(coin::value<CoinType>(&order.coins) > 0, ESWAP_ALREADY_REDEEMED_OR_REFUNDED);
@@ -180,26 +186,20 @@ module atomic_swapv1::AtomicSwap {
 
     // Redeems the coins and destroys the Order object
     public fun redeem_Swap<CoinType: drop>(
-        order: &mut Order<CoinType>,
-        orders_reg: &mut OrdersRegistry,
+        orders_reg: &mut OrdersRegistry<CoinType>,
+        order_id: vector<u8>,
         secret: vector<u8>,
         clock: &Clock,
         ctx: &mut TxContext
     ){
+        assert!(object_table::contains(&orders_reg.orders, order_id), EORDER_NOT_FOUND);
+        let mut order = object_table::borrow_mut(&mut orders_reg.orders, order_id);
         // Makes sure that order has not expired
-        assert!(clock::timestamp_ms(clock) >= order.timelock + order.initiated_at, ESWAP_EXPIRED);
-
+        assert!(clock::timestamp_ms(clock) < order.timelock + order.initiated_at, ESWAP_EXPIRED);
         // Ensure that the secret sent, after hashing, is same as the hashed_secret we have stored
         let secret_hash = hash::sha2_256(secret);
         assert!(order.secret_hash == secret_hash, ESECRET_MISMATCH);
-
-        let calc_order_id = create_order_id(secret_hash, order.initiator);
-        assert!(table::contains(&orders_reg.orders, calc_order_id), EORDER_NOT_FOUND);
-        let calc_object_id = *table::borrow(&orders_reg.orders, calc_order_id);
-        assert!(calc_object_id == order.id.uid_to_inner(), 0);
-
         assert!(order.is_fulfilled == false, ESWAP_ALREADY_REDEEMED_OR_REFUNDED);
-
         // Unpack the Order object, only need initiator, coins and id (it cant be dropped) so the rest are all _ 
         let amount = order.amount;
         let redeemer = order.redeemer;
@@ -228,59 +228,60 @@ module atomic_swapv1::AtomicSwap {
         });
     }
 
-    public fun initiate_on_behalf<CoinType: drop>(
-        orders_reg: &mut OrdersRegistry,
-        initiator: address,
-        redeemer: address,
-        secret_hash: vector<u8>,
-        amount: u64, 
-        timelock: u64,
-        coins: Coin<CoinType>,
-        clock: &Clock,
-        ctx: &mut TxContext
-    ) {
-        // Check that value of coins exceeds amount in order
-        assert!(coin::value<CoinType>(&coins) >= amount, ENOT_ENOUGH_BALANCE);
+    // public fun initiate_on_behalf<CoinType: drop>(
+    //     orders_reg: &mut OrdersRegistry,
+    //     initiator: address,
+    //     redeemer: address,
+    //     secret_hash: vector<u8>,
+    //     amount: u64, 
+    //     timelock: u64,
+    //     coins: Coin<CoinType>,
+    //     clock: &Clock,
+    //     ctx: &mut TxContext
+    // ) {
+    //     // Check that value of coins exceeds amount in order
+    //     assert!(coin::value<CoinType>(&coins) >= amount, ENOT_ENOUGH_BALANCE);
 
-        let id = object::new(ctx);
-        let object_id = object::uid_to_inner(&id);
-        let order_id = create_order_id(secret_hash, initiator);
+    //     let id = object::new(ctx);
+    //     let object_id = object::uid_to_inner(&id);
+    //     let order_id = create_order_id(secret_hash, initiator);
 
-        // Check if the order_id already exists
-        // assert!(!table::contains(&orders_reg.orders, order_id), EDUPLICATE_ORDER);
+    //     // Check if the order_id already exists
+    //     // assert!(!table::contains(&orders_reg.orders, order_id), EDUPLICATE_ORDER);
 
-        // Emit event
-        event::emit(Initiated {
-            order_id: object_id,
-            initiator: initiator,
-            redeemer: redeemer
-        });
-        // get the required amount out of the users balance
-        let order = Order {
-            id: id,
-            initiator: initiator,                       // The address of the initiator 
-            is_fulfilled: false,                                                             // Create a new ID for the object
-            redeemer: redeemer,                                                 // The address of the redeemer
-            amount: amount,
-            secret_hash: secret_hash,                                           // The hashed secret
-            initiated_at: clock::timestamp_ms(clock),                                                      // The amount to be transferred
-            coins,                                                              // The coins where value(coins) == amount
-            timelock       // THe expiry, being (timelock) hours away from initialization time
-        };
+    //     // Emit event
+    //     event::emit(Initiated {
+    //         order_id: object_id,
+    //         initiator: initiator,
+    //         redeemer: redeemer
+    //     });
+    //     // get the required amount out of the users balance
+    //     let order = Order {
+    //         id: id,
+    //         initiator: initiator,                       // The address of the initiator 
+    //         is_fulfilled: false,                                                             // Create a new ID for the object
+    //         redeemer: redeemer,                                                 // The address of the redeemer
+    //         amount: amount,
+    //         secret_hash: secret_hash,                                           // The hashed secret
+    //         initiated_at: clock::timestamp_ms(clock),                                                      // The amount to be transferred
+    //         coins,                                                              // The coins where value(coins) == amount
+    //         timelock       // THe expiry, being (timelock) hours away from initialization time
+    //     };
         
-        ////////////////
-        // let obj_id = order.borrow_uid();
-        ////////////////
+    //     ////////////////
+    //     // let obj_id = order.borrow_uid();
+    //     ////////////////
 
-        orders_reg.orders.add(order_id, object_id);
-        // Share the object so anyone can access nad mutate it
-        transfer::share_object<Order<CoinType>>(order);
-    }
+    //     orders_reg.orders.add(order_id, object_id);
+    //     // Share the object so anyone can access nad mutate it
+    //     transfer::share_object<Order<CoinType>>(order);
+    // }
 
-    public fun instant_refund<CoinType: drop>(order: &mut Order<CoinType>, orders_reg: &mut OrdersRegistry, signature: vector<u8>, clock: &Clock, ctx: &mut TxContext){
-        let order_id_calc = create_order_id(order.secret_hash, order.initiator);
-        let refund_digest = instant_refund_digest(order_id_calc);
-        let mut redeemer_pk = ecdsa_k1::secp256k1_ecrecover(&x"9298edb5aba5099dffa7fe909f357724c8bbcb90596afcf5d7b96377bb278b846a2f9d793a77e48fec192634d2d4ac00b229e7e69178fd29fee326c78fd02e6100", &x"d5e15fd48f1ce0871d0e1251abc66f4c95b06336c39b369919f0d36428f0bfcd", 1);
+    public fun instant_refund<CoinType>(order_id: vector<u8>, orders_reg: &mut OrdersRegistry<CoinType>, signature: vector<u8>, clock: &Clock, ctx: &mut TxContext){
+        assert!(object_table::contains(&orders_reg.orders, order_id), EORDER_NOT_FOUND);
+        let mut order = object_table::borrow_mut(&mut orders_reg.orders, order_id);
+        let refund_digest = instant_refund_digest(order_id);
+        let mut redeemer_pk = ecdsa_k1::secp256k1_ecrecover(&signature, &refund_digest, 1);
         let flag: u8 = 1; // 0x00 = ED25519, 0x01 = Secp256k1, 0x02 = Secp256r1, 0x03 = multiSig
         let mut preimage: vector<u8> = vector::empty<u8>();
         vector::push_back(&mut preimage, flag);
@@ -309,9 +310,6 @@ module atomic_swapv1::AtomicSwap {
             ), 
             order.initiator
         );
-
-
-
     }
 
     public fun instant_refund_digest(order_id: vector<u8>) : vector<u8> {
@@ -328,7 +326,9 @@ module atomic_swapv1::AtomicSwap {
         let hash_result: vector<u8> = keccak256(&data);
         hash_result
     }
-    // ================================================= Tests ================================================= 
+    
+    
+    // // ================================================= Tests ================================================= 
 
     #[test_only]
     use sui::test_scenario;
@@ -339,22 +339,23 @@ module atomic_swapv1::AtomicSwap {
         let pub_address: address = @0xb0b;
         let mut scenario_val = test_scenario::begin(pub_address);
         let scenario = &mut scenario_val;
-
+        let mut reg_add: ID;
         test_scenario::next_tx(scenario, pub_address);
         {
-            create_orders_registry(test_scenario::ctx(scenario));
+            reg_add = create_orders_registry<SUI>(test_scenario::ctx(scenario));
         };
 
         // Next transaction to verify the registry
         test_scenario::next_tx(scenario, pub_address);
         {
-            let registry = test_scenario::take_shared<OrdersRegistry>(scenario);
-            let OrdersRegistry{id, orders} = &registry; 
-            assert!(table::is_empty(orders), ENOT_EMPTY);
+            let registry = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
+            let OrdersRegistry{id, orders} = &registry;
+            assert!(object_table::is_empty(orders), 0);
+            assert!(object::uid_to_inner(id) == reg_add, 0);
             test_scenario::return_shared(registry);
         };
 
-        scenario_val.end();
+        test_scenario::end(scenario_val);
     }
 
     // Test just the initialization part of it
@@ -376,11 +377,12 @@ module atomic_swapv1::AtomicSwap {
 
         // Create a clock for testing
         let clock = clock::create_for_testing(test_scenario::ctx(scenario));
-
+        let mut reg_add: ID;
+        
         // Create orders registry
         test_scenario::next_tx(scenario, initiator_address);
         {
-            create_orders_registry(test_scenario::ctx(scenario));
+            reg_add = create_orders_registry<SUI>(test_scenario::ctx(scenario));
         };
 
         // Mint and transfer coins
@@ -391,16 +393,17 @@ module atomic_swapv1::AtomicSwap {
         };
 
         // Initialize the order
+        let mut order_id: vector<u8>;
         test_scenario::next_tx(scenario, initiator_address);
         {
             // Take the orders registry
-            let mut orders_reg = test_scenario::take_shared<OrdersRegistry>(scenario);
+            let mut orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
             
             // Take the coins from sender
             let coins = test_scenario::take_from_sender<Coin<SUI>>(scenario);
 
             // Call initialize_Swap
-            initialize_Swap<SUI>(
+            order_id = initialize_Swap<SUI>(
                 &mut orders_reg, 
                 redeemer_address,
                 secret_hash,
@@ -415,31 +418,24 @@ module atomic_swapv1::AtomicSwap {
             test_scenario::return_shared(orders_reg);
         };
 
-        // Verify the order
+        // Verify the order in the registry
         test_scenario::next_tx(scenario, initiator_address);
         {
-            // Take the shared order
-            let shared_swap = test_scenario::take_shared<Order<SUI>>(scenario);
-
-            // Assertions
-            assert!(shared_swap.initiator == initiator_address, ECREATED_SWAP_NOT_OURS);
-            assert!(shared_swap.redeemer == redeemer_address, ECREATED_SWAP_NOT_OURS);
-            assert!(coin::value<SUI>(&shared_swap.coins) == amount, ECREATED_SWAP_NOT_OURS);
-            assert!(shared_swap.secret_hash == secret_hash, ECREATED_SWAP_NOT_OURS);
-            assert!(shared_swap.is_fulfilled == false, ECREATED_SWAP_NOT_OURS);
-            assert!(shared_swap.timelock == expiry, ECREATED_SWAP_NOT_OURS);
-
-            // Return the shared order
-            test_scenario::return_shared(shared_swap);
-        };
-
-        // Verify the order is registered in the registry
-        test_scenario::next_tx(scenario, initiator_address);
-        {
-            let orders_reg = test_scenario::take_shared<OrdersRegistry>(scenario);
+            let mut orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
             
-            let order_id = create_order_id(secret_hash, initiator_address);
-            assert!(orders_reg.orders.contains(order_id), ECREATED_SWAP_NOT_OURS);
+            // Check that the order exists in the registry
+            assert!(object_table::contains(&orders_reg.orders, order_id), ECREATED_SWAP_NOT_OURS);
+            
+            // Borrow the order to verify its fields
+            let order = object_table::borrow(&orders_reg.orders, order_id);
+            
+            // Assertions
+            assert!(order.initiator == initiator_address, ECREATED_SWAP_NOT_OURS);
+            assert!(order.redeemer == redeemer_address, ECREATED_SWAP_NOT_OURS);
+            assert!(coin::value(&order.coins) == amount, ECREATED_SWAP_NOT_OURS);
+            assert!(order.secret_hash == secret_hash, ECREATED_SWAP_NOT_OURS);
+            assert!(order.is_fulfilled == false, ECREATED_SWAP_NOT_OURS);
+            assert!(order.timelock == expiry, ECREATED_SWAP_NOT_OURS);
 
             test_scenario::return_shared(orders_reg);
         };
@@ -468,11 +464,11 @@ module atomic_swapv1::AtomicSwap {
 
         // Create a clock for testing
         let mut clock = clock::create_for_testing(test_scenario::ctx(scenario));
-
+        
         // Create orders registry
         test_scenario::next_tx(scenario, initiator_address);
         {
-            create_orders_registry(test_scenario::ctx(scenario));
+            create_orders_registry<SUI>(test_scenario::ctx(scenario));
         };
 
         // Mint and transfer coins
@@ -486,10 +482,11 @@ module atomic_swapv1::AtomicSwap {
         let initial_timestamp = 0;
 
         // Initialize the order
+        let mut order_id: vector<u8>;
         test_scenario::next_tx(scenario, initiator_address);
         {
             // Take the orders registry
-            let mut orders_reg = test_scenario::take_shared<OrdersRegistry>(scenario);
+            let mut orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
             
             // Take the coins from sender
             let coins = test_scenario::take_from_sender<Coin<SUI>>(scenario);
@@ -498,7 +495,7 @@ module atomic_swapv1::AtomicSwap {
             clock::set_for_testing(&mut clock, initial_timestamp);
 
             // Call initialize_Swap
-            initialize_Swap<SUI>(
+            order_id = initialize_Swap<SUI>(
                 &mut orders_reg, 
                 redeemer_address,
                 secret_hash,
@@ -513,28 +510,50 @@ module atomic_swapv1::AtomicSwap {
             test_scenario::return_shared(orders_reg);
         };
 
-        // Perform refund (advance time past expiry)
-        test_scenario::next_tx(scenario, redeemer_address);
+        // Verify order state before refund
+        test_scenario::next_tx(scenario, initiator_address);
         {
-            // Take the shared order
-            let mut shared_swap = test_scenario::take_shared<Order<SUI>>(scenario);
+            let orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
+            let order = object_table::borrow(&orders_reg.orders, order_id);
+            
+            assert!(order.is_fulfilled == false, 0);
+            assert!(coin::value(&order.coins) == amount, 0);
+            
+            test_scenario::return_shared(orders_reg);
+        };
+
+        // Perform refund (advance time past expiry)
+        test_scenario::next_tx(scenario, initiator_address);
+        {
+            // Take the orders registry
+            let mut orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
 
             // Advance clock past the expiry time
             let refund_time = initial_timestamp + expiry + 1000;
             clock::set_for_testing(&mut clock, refund_time);
 
-            // Verify initial state before refund
-            assert!(shared_swap.is_fulfilled == false, 0);
-            assert!(coin::value<SUI>(&shared_swap.coins) == amount, 0);
-
             // Perform refund
-            refund_Swap<SUI>(&mut shared_swap, &clock, test_scenario::ctx(scenario));
+            refund_Swap<SUI>(
+                &mut orders_reg,
+                order_id,
+                &clock,
+                test_scenario::ctx(scenario)
+            );
 
-            // Verify post-refund state
-            assert!(shared_swap.is_fulfilled == true, 0);
+            // Return the modified registry
+            test_scenario::return_shared(orders_reg);
+        };
 
-            // Return the modified order
-            test_scenario::return_shared(shared_swap);
+        // Verify post-refund state
+        test_scenario::next_tx(scenario, initiator_address);
+        {
+            let orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
+            let order = object_table::borrow(&orders_reg.orders, order_id);
+            
+            // Verify the order is marked as fulfilled
+            assert!(order.is_fulfilled == true, 0);
+            
+            test_scenario::return_shared(orders_reg);
         };
 
         // Verify refund transfer
@@ -572,11 +591,12 @@ module atomic_swapv1::AtomicSwap {
 
         // Create a clock for testing
         let mut clock = clock::create_for_testing(test_scenario::ctx(scenario));
-
+        // Store the initial timestamp for precise testing
+        let initial_timestamp = 0;
         // Create orders registry
         test_scenario::next_tx(scenario, initiator_address);
         {
-            create_orders_registry(test_scenario::ctx(scenario));
+            create_orders_registry<SUI>(test_scenario::ctx(scenario));
         };
 
         // Mint and transfer coins
@@ -589,11 +609,12 @@ module atomic_swapv1::AtomicSwap {
         // Store the initial timestamp for precise testing
         let initial_timestamp = 0;
 
-        // Initialize the swap
+        // Initialize the order
+        let mut order_id: vector<u8>;
         test_scenario::next_tx(scenario, initiator_address);
         {
             // Take the orders registry
-            let mut orders_reg = test_scenario::take_shared<OrdersRegistry>(scenario);
+            let mut orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
             
             // Take the coins from sender
             let coins = test_scenario::take_from_sender<Coin<SUI>>(scenario);
@@ -602,7 +623,7 @@ module atomic_swapv1::AtomicSwap {
             clock::set_for_testing(&mut clock, initial_timestamp);
 
             // Call initialize_Swap
-            initialize_Swap<SUI>(
+            order_id = initialize_Swap<SUI>(
                 &mut orders_reg, 
                 redeemer_address,
                 secret_hash,
@@ -617,37 +638,51 @@ module atomic_swapv1::AtomicSwap {
             test_scenario::return_shared(orders_reg);
         };
 
-        // Perform redeem (advance time to just before expiry)
+        // Verify order state before redeem
+        test_scenario::next_tx(scenario, initiator_address);
+        {
+            let orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
+            let order = object_table::borrow(&orders_reg.orders, order_id);
+            
+            assert!(order.is_fulfilled == false, 0);
+            assert!(coin::value(&order.coins) == amount, 0);
+            
+            test_scenario::return_shared(orders_reg);
+        };
+
+        // Perform redeem
         test_scenario::next_tx(scenario, redeemer_address);
         {
             // Take the orders registry
-            let mut orders_reg = test_scenario::take_shared<OrdersRegistry>(scenario);
+            let mut orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
 
-            // Take the shared swap
-            let mut shared_swap = test_scenario::take_shared<Order<SUI>>(scenario);
-
+            
             // Advance clock to just past the initial timestamp
-            let redeem_time = initial_timestamp + expiry + 1000;
+            let redeem_time = initial_timestamp + expiry - 1;
             clock::set_for_testing(&mut clock, redeem_time);
-
-            // Verify initial state before redeem
-            assert!(shared_swap.is_fulfilled == false, 0);
-            assert!(coin::value<SUI>(&shared_swap.coins) == amount, 0);
 
             // Perform redeem
             redeem_Swap<SUI>(
-                &mut shared_swap, 
                 &mut orders_reg,
+                order_id,
                 secret,
-                &clock, 
+                &clock,
                 test_scenario::ctx(scenario)
             );
 
-            // Verify post-redeem state
-            assert!(shared_swap.is_fulfilled == true, 0);
+            // Return the modified registry
+            test_scenario::return_shared(orders_reg);
+        };
 
-            // Return the modified swap and registry
-            test_scenario::return_shared(shared_swap);
+        // Verify post-redeem state
+        test_scenario::next_tx(scenario, initiator_address);
+        {
+            let orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
+            let order = object_table::borrow(&orders_reg.orders, order_id);
+            
+            // Verify the order is marked as fulfilled
+            assert!(order.is_fulfilled == true, 0);
+            
             test_scenario::return_shared(orders_reg);
         };
 
@@ -698,7 +733,7 @@ module atomic_swapv1::AtomicSwap {
         // Create orders registry
         test_scenario::next_tx(scenario, initiator_address);
         {
-            create_orders_registry(test_scenario::ctx(scenario));
+            create_orders_registry<SUI>(test_scenario::ctx(scenario));
         };
 
         // Mint and transfer coins
@@ -710,12 +745,12 @@ module atomic_swapv1::AtomicSwap {
 
         // Store the initial timestamp for precise testing
         let initial_timestamp = 0;
-
+        let mut order_id: vector<u8>;
         // Initialize the order
         test_scenario::next_tx(scenario, initiator_address);
         {
             // Take the orders registry
-            let mut orders_reg = test_scenario::take_shared<OrdersRegistry>(scenario);
+            let mut orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
             
             // Take the coins from sender
             let coins = test_scenario::take_from_sender<Coin<SUI>>(scenario);
@@ -724,7 +759,7 @@ module atomic_swapv1::AtomicSwap {
             clock::set_for_testing(&mut clock, initial_timestamp);
 
             // Call initialize_Swap with our derived redeemer address
-            initialize_Swap<SUI>(
+            order_id = initialize_Swap<SUI>(
                 &mut orders_reg, 
                 redeemer_address,
                 secret_hash,
@@ -739,39 +774,43 @@ module atomic_swapv1::AtomicSwap {
             test_scenario::return_shared(orders_reg);
         };
         
-        // Calculate the order_id and refund_digest
-        let order_id = create_order_id(secret_hash, initiator_address);
         let refund_digest = instant_refund_digest(order_id);
 
         //we calulate the digest and sign it off-chain (fastcrypto-cli used here)
         std::debug::print(&refund_digest); //0xd5e15fd48f1ce0871d0e1251abc66f4c95b06336c39b369919f0d36428f0bfcd
         let signature = x"9298edb5aba5099dffa7fe909f357724c8bbcb90596afcf5d7b96377bb278b846a2f9d793a77e48fec192634d2d4ac00b229e7e69178fd29fee326c78fd02e6100";
         
+        // Verify order state before refund
+        test_scenario::next_tx(scenario, initiator_address);
+        {
+            let orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
+            let order = object_table::borrow(&orders_reg.orders, order_id);
+            
+            assert!(order.is_fulfilled == false, 0);
+            assert!(coin::value<SUI>(&order.coins) == amount, 0);
+            
+            test_scenario::return_shared(orders_reg);
+        };
+
         // Perform instant refund
         test_scenario::next_tx(scenario, initiator_address);
         {
-            // Take the shared order and registry
-            let mut shared_swap = test_scenario::take_shared<Order<SUI>>(scenario);
-            let mut orders_reg = test_scenario::take_shared<OrdersRegistry>(scenario);
-
-            // Verify initial state before refund
-            assert!(shared_swap.is_fulfilled == false, 0);
-            assert!(coin::value<SUI>(&shared_swap.coins) == amount, 0);
+            // Take the registry
+            let mut orders_reg = test_scenario::take_shared<OrdersRegistry<SUI>>(scenario);
 
             // Perform instant refund with our signature
             instant_refund<SUI>(
-                &mut shared_swap, 
+                order_id, 
                 &mut orders_reg, 
                 signature, 
                 &clock, 
                 test_scenario::ctx(scenario)
             );
-
+            let order = object_table::borrow(&orders_reg.orders, order_id);
             // Verify post-refund state
-            assert!(shared_swap.is_fulfilled == true, 0);
+            assert!(order.is_fulfilled == true, 0);
 
             // Return the modified objects
-            test_scenario::return_shared(shared_swap);
             test_scenario::return_shared(orders_reg);
         };
 
