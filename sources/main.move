@@ -10,7 +10,9 @@ module atomic_swapv1::AtomicSwap {
     use 0x1::hash;                                  // To hash the secret, for the case of redeeming
     use sui::address;
     use sui::ecdsa_k1;
+    use sui::ed25519;
     use sui::object_table::{Self, ObjectTable};
+    use sui::bcs;
     // Error codes, self-explanatory
     const ENOT_ENOUGH_BALANCE: u64 = 1;
     const ESWAP_EXPIRED: u64 = 2;
@@ -22,12 +24,15 @@ module atomic_swapv1::AtomicSwap {
     const ENOT_EMPTY:u64 = 8;
 
     const REFUND_TYPEHASH: vector<u8> = b"Refund(bytes32 orderId)";
+    const INITIATE_TYPEHASH: vector<u8> = b"Initiate(bytes32 orderId)";
+
     // The Order struct
     public struct Order<phantom CoinType> has key, store {
         id: UID,
         is_fulfilled: bool,
         initiator: address,
         redeemer: address,
+        redeemer_pk: vector<u8>,
         amount: u64,
         initiated_at: u64,
         coins: Coin<CoinType>,
@@ -46,21 +51,21 @@ module atomic_swapv1::AtomicSwap {
 
     // Struct for the initialized Event
     public struct Initiated has copy, drop {
-        order_id: ID,
+        order_id: vector<u8>,
         initiator: address,
         redeemer: address,
     }
 
     // Struct for the refund Event
     public struct Refunded has copy, drop {
-        order_id: ID,
+        order_id: vector<u8>,
         initiator: address,
         redeemer: address,
     }
 
     // Struct for the redeem Event
     public struct Redeemed has copy, drop {
-            order_id: ID,
+            order_id: vector<u8>,
             initiator: address,
             redeemer: address,
             secret: vector<u8>
@@ -84,16 +89,18 @@ module atomic_swapv1::AtomicSwap {
     }
 
     public fun create_order_id(secret_hash: vector<u8>, initiator: address): vector<u8> {
+        let sui_chain_id = x"0000000000000000000000000000000000000000000000000000000000000000";
         // Convert the address to a vector<u8> manually
         let mut address_bytes = vector::empty<u8>();
         let address_vec: vector<u8> = address::to_bytes(initiator); 
         vector::append(&mut address_bytes, address_vec);
-
+        // vector::append
         // Concatenate the secret_hash and address_bytes
         let mut data = vector::empty<u8>();
         vector::append(&mut data, secret_hash);
         vector::append(&mut data, address_bytes);
-
+        // Concatenate SUI mainnet id
+        vector::append(&mut data, sui_chain_id);
         // Compute the SHA256 hash of the concatenated data
         let hash_result: vector<u8> = hash::sha2_256(data);
         hash_result
@@ -102,6 +109,7 @@ module atomic_swapv1::AtomicSwap {
     public fun initialize_Swap<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>,
         redeemer: address,
+        redeemer_pk: vector<u8>,
         secret_hash: vector<u8>,
         amount: u64, 
         timelock: u64,
@@ -121,7 +129,7 @@ module atomic_swapv1::AtomicSwap {
 
         // Emit event
         event::emit(Initiated {
-            order_id: object_id,
+            order_id: order_id,
             initiator: tx_context::sender(ctx),
             redeemer: redeemer
         });
@@ -131,6 +139,59 @@ module atomic_swapv1::AtomicSwap {
             initiator: tx_context::sender(ctx),                                 // The address of the initiator 
             is_fulfilled: false,                                                // Create a new ID for the object
             redeemer: redeemer,                                                 // The address of the redeemer
+            redeemer_pk: redeemer_pk,
+            amount: amount,                                                     // The amount being locked for swap
+            secret_hash: secret_hash,                                           // The hashed secret
+            initiated_at: clock::timestamp_ms(clock),                           // The amount to be transferred
+            coins,                                                              // The coins where value(coins) == amount
+            timelock                                                            // THe expiry, being (timelock) hours away from initialization time
+        };
+        
+        ////////////////
+        // let obj_id = order.borrow_uid();
+        ////////////////
+
+        orders_reg.orders.add(order_id, order);
+        // Share the object so anyone can access nad mutate it
+        // transfer::share_object<Order<CoinType>>(order);
+        order_id
+    }
+    public fun initiate_with_sig<CoinType>(
+        orders_reg: &mut OrdersRegistry<CoinType>,
+        initiator: address,
+        initiator_pubk: vector<u8>,
+        redeemer: address,
+        redeemer_pubk: vector<u8>,
+        secret_hash: vector<u8>,
+        amount: u64, 
+        timelock: u64,
+        coins: Coin<CoinType>,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ): vector<u8> {
+        // Check that value of coins exceeds amount in order
+        assert!(coin::value<CoinType>(&coins) >= amount, ENOT_ENOUGH_BALANCE);
+
+        let id = object::new(ctx);
+        let object_id = object::uid_to_inner(&id);
+        let order_id = create_order_id(secret_hash, ctx.sender());
+
+        // Check if the order_id already exists
+        // assert!(!table::contains(&orders_reg.orders, order_id), EDUPLICATE_ORDER);
+
+        // Emit event
+        event::emit(Initiated {
+            order_id: order_id,
+            initiator: tx_context::sender(ctx),
+            redeemer: redeemer
+        });
+        // get the required amount out of the users balance
+        let order = Order {
+            id: id,
+            initiator: initiator,                                 // The address of the initiator 
+            is_fulfilled: false,                                                // Create a new ID for the object
+            redeemer: redeemer,                                                 // The address of the redeemer
+            redeemer_pk: redeemer_pk,
             amount: amount,                                                     // The amount being locked for swap
             secret_hash: secret_hash,                                           // The hashed secret
             initiated_at: clock::timestamp_ms(clock),                           // The amount to be transferred
@@ -168,7 +229,7 @@ module atomic_swapv1::AtomicSwap {
 
         // Emit event
         event::emit(Refunded {
-            order_id: object::uid_to_inner(&order.id),
+            order_id: order_id,
             initiator: order.initiator,
             redeemer: order.redeemer
         });
@@ -185,7 +246,7 @@ module atomic_swapv1::AtomicSwap {
     }
 
     // Redeems the coins and destroys the Order object
-    public fun redeem_Swap<CoinType: drop>(
+    public fun redeem_Swap<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>,
         order_id: vector<u8>,
         secret: vector<u8>,
@@ -221,7 +282,7 @@ module atomic_swapv1::AtomicSwap {
         
         // Emit event
         event::emit(Redeemed {
-            order_id: object::uid_to_inner(&order.id),
+            order_id: order_id,
             initiator: order.initiator,
             redeemer: order.redeemer,
             secret: secret
@@ -277,26 +338,19 @@ module atomic_swapv1::AtomicSwap {
     //     transfer::share_object<Order<CoinType>>(order);
     // }
 
-    public fun instant_refund<CoinType>(order_id: vector<u8>, orders_reg: &mut OrdersRegistry<CoinType>, signature: vector<u8>, clock: &Clock, ctx: &mut TxContext){
+    public fun instant_refund<CoinType>(orders_reg: &mut OrdersRegistry<CoinType>, order_id: vector<u8>, signature: vector<u8>, clock: &Clock, ctx: &mut TxContext){
         assert!(object_table::contains(&orders_reg.orders, order_id), EORDER_NOT_FOUND);
         let mut order = object_table::borrow_mut(&mut orders_reg.orders, order_id);
         let refund_digest = instant_refund_digest(order_id);
-        let mut redeemer_pk = ecdsa_k1::secp256k1_ecrecover(&signature, &refund_digest, 1);
-        let flag: u8 = 1; // 0x00 = ED25519, 0x01 = Secp256k1, 0x02 = Secp256r1, 0x03 = multiSig
-        let mut preimage: vector<u8> = vector::empty<u8>();
-        vector::push_back(&mut preimage, flag);
-        vector::append(&mut preimage, redeemer_pk);
-        let redeemer = blake2b256(&preimage);
-        std::debug::print(&redeemer);
-        let redeemer_address = address::from_bytes(redeemer);
-        assert!(order.redeemer == redeemer_address, 0);
+        let verify = ed25519::ed25519_verify(&signature, &order.redeemer_pk, &refund_digest);
+        assert!(verify == true, 0);
         assert!(order.is_fulfilled == false, 0);
         
         order.is_fulfilled = true;
 
         // Emit event
         event::emit(Refunded {
-            order_id: object::uid_to_inner(&order.id),
+            order_id: order_id,
             initiator: order.initiator,
             redeemer: order.redeemer
         });
@@ -363,7 +417,7 @@ module atomic_swapv1::AtomicSwap {
     public fun test_initialize_swap() {
         let initiator_address: address = @0xa11ce;     // Address of the initiator    
         let redeemer_address: address = @0xb0b;        // Address of the redeemer
-
+        let false_redeemer_pk: vector<u8> = x"00";
         // The secrets
         let secret = b"ABAB";
         let secret_hash = hash::sha2_256(secret);
@@ -405,7 +459,7 @@ module atomic_swapv1::AtomicSwap {
             // Call initialize_Swap
             order_id = initialize_Swap<SUI>(
                 &mut orders_reg, 
-                redeemer_address,
+                redeemer_address, false_redeemer_pk,
                 secret_hash,
                 amount, 
                 expiry,
@@ -480,7 +534,7 @@ module atomic_swapv1::AtomicSwap {
 
         // Store the initial timestamp for precise testing
         let initial_timestamp = 0;
-
+        let false_redeemer_pk: vector<u8> = x"00";
         // Initialize the order
         let mut order_id: vector<u8>;
         test_scenario::next_tx(scenario, initiator_address);
@@ -497,7 +551,7 @@ module atomic_swapv1::AtomicSwap {
             // Call initialize_Swap
             order_id = initialize_Swap<SUI>(
                 &mut orders_reg, 
-                redeemer_address,
+                redeemer_address, false_redeemer_pk,
                 secret_hash,
                 amount, 
                 expiry,
@@ -577,7 +631,7 @@ module atomic_swapv1::AtomicSwap {
     public fun test_redeem_swap() {
         let initiator_address: address = @0xa11ce;     // Address of the initiator    
         let redeemer_address: address = @0xb0b;        // Address of the redeemer
-
+        let false_redeemer_pk: vector<u8> = x"00";
         // The secrets
         let secret = b"ABAB";
         let secret_hash = hash::sha2_256(secret);
@@ -625,7 +679,7 @@ module atomic_swapv1::AtomicSwap {
             // Call initialize_Swap
             order_id = initialize_Swap<SUI>(
                 &mut orders_reg, 
-                redeemer_address,
+                redeemer_address, false_redeemer_pk,
                 secret_hash,
                 amount, 
                 expiry,
@@ -707,15 +761,15 @@ module atomic_swapv1::AtomicSwap {
     public fun test_instant_refund() {
         let initiator_address: address = @0xa11ce;   
         // Create a test keypair for the redeemer (using fastcrypto cli)
-        let redeemer_sk = x"9bf49a6a0755f953811fce125f2683d50429c3bb49e074147e0089a52eae155f";
-        let redeemer_pk = x"029bef8d556d80e43ae7e0becb3a7e6838b95defe45896ed6075bb9035d06c9964";
-        let flag: u8 = 1; // 0x00 = ED25519, 0x01 = Secp256k1, 0x02 = Secp256r1, 0x03 = multiSig
+        let redeemer_sk: vector<u8> = x"9bf49a6a0755f953811fce125f2683d50429c3bb49e074147e0089a52eae155f";
+        let redeemer_pk: vector<u8> = x"b9c6ee1630ef3e711144a648db06bbb2284f7274cfbee53ffcee503cc1a49200";
+        let flag: u8 = 0; // 0x00 = ED25519, 0x01 = Secp256k1, 0x02 = Secp256r1, 0x03 = multiSig
         let mut preimage: vector<u8> = vector::empty<u8>();
         vector::push_back(&mut preimage, flag);
         vector::append(&mut preimage, redeemer_pk);
         let redeemer_add = blake2b256(&preimage);
         let redeemer_address = address::from_bytes(redeemer_add);
-
+        std::debug::print(&redeemer_address);
         // The secrets
         let secret = b"ABAB";
         let secret_hash = hash::sha2_256(secret);
@@ -745,7 +799,6 @@ module atomic_swapv1::AtomicSwap {
 
         // Store the initial timestamp for precise testing
         let initial_timestamp = 0;
-        let mut order_id: vector<u8>;
         // Initialize the order
         test_scenario::next_tx(scenario, initiator_address);
         {
@@ -759,9 +812,9 @@ module atomic_swapv1::AtomicSwap {
             clock::set_for_testing(&mut clock, initial_timestamp);
 
             // Call initialize_Swap with our derived redeemer address
-            order_id = initialize_Swap<SUI>(
+            initialize_Swap<SUI>(
                 &mut orders_reg, 
-                redeemer_address,
+                redeemer_address, redeemer_pk,
                 secret_hash,
                 amount, 
                 expiry,
@@ -774,11 +827,12 @@ module atomic_swapv1::AtomicSwap {
             test_scenario::return_shared(orders_reg);
         };
         
+        let mut order_id = create_order_id(secret_hash, initiator_address);
         let refund_digest = instant_refund_digest(order_id);
 
         //we calulate the digest and sign it off-chain (fastcrypto-cli used here)
-        std::debug::print(&refund_digest); //0xd5e15fd48f1ce0871d0e1251abc66f4c95b06336c39b369919f0d36428f0bfcd
-        let signature = x"9298edb5aba5099dffa7fe909f357724c8bbcb90596afcf5d7b96377bb278b846a2f9d793a77e48fec192634d2d4ac00b229e7e69178fd29fee326c78fd02e6100";
+        std::debug::print(&refund_digest); //0x65a77e8ba886a4b7d6efb5e2711b0fccbb1b1d4616bfc52a5996020cd4967afb
+        let signature = x"b142493491b1c5b4e33fdbcfd6f256b83a5bb4c58369995329c9faa99de7ca59dc03175e19cbb1ef75102e73db12e89f2b1e2a1f967022267aad87e0d4ec7806";
         
         // Verify order state before refund
         test_scenario::next_tx(scenario, initiator_address);
@@ -800,8 +854,8 @@ module atomic_swapv1::AtomicSwap {
 
             // Perform instant refund with our signature
             instant_refund<SUI>(
-                order_id, 
                 &mut orders_reg, 
+                order_id, 
                 signature, 
                 &clock, 
                 test_scenario::ctx(scenario)
@@ -828,5 +882,29 @@ module atomic_swapv1::AtomicSwap {
         // Clean up
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario_val);
+    }
+
+    #[test]
+    public fun test_create_order_id() {
+        // let secret = b"ABABCBA";
+        // let secret_hash = hash::sha2_256(secret);
+        // std::debug::print(&secret_hash);
+        // let add: address = @0x6327b12f0e672c857cf562e9d3ac96e488b921e9e91d5b3f5bf0e8f54707ea11;
+        // let res = create_order_id(secret_hash, add);
+        // std::debug::print(&res);
+        
+        // let pk = x"b9c6ee1630ef3e711144a648db06bbb2284f7274cfbee53ffcee503cc1a49200";
+        // let flag: u8 = 1; // 0x00 = ED25519, 0x01 = Secp256k1, 0x02 = Secp256r1, 0x03 = multiSig
+        // let mut preimage: vector<u8> = vector::empty<u8>();
+        // vector::push_back(&mut preimage, flag);
+        // vector::append(&mut preimage, pk);
+        // let redeemer = blake2b256(&preimage);
+        // std::debug::print(&redeemer);
+        // let redeemer_address = address::from_bytes(redeemer);
+        // std::debug::print(&redeemer_address);
+
+        let msg = x"f5737cf6698a26ce7fe25cf8359daed98d76cec7de5d7c6c7fd6c4ce34b2314d";
+        let pk = x"9c8edcc5989fa5747d1454c41015192ebb96308d3b48fa98d949b49cd1b22210";
+        
     }
 }

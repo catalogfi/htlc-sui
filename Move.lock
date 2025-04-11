@@ -2,7 +2,8 @@
 
 [move]
 version = 3
-
+manifest_digest = "8D88DC014B9475B89E789A306239755AF4BEE74FD935EEE486ACEB2382B9C242"
+deps_digest = "397E6A9F7A624706DBDFEE056CE88391A15876868FD18A88504DA74EB458D697"
 dependencies = [
   { id = "Bridge", name = "Bridge" },
   { id = "DeepBook", name = "DeepBook" },
@@ -10,8 +11,6 @@ dependencies = [
   { id = "Sui", name = "Sui" },
   { id = "SuiSystem", name = "SuiSystem" },
 ]
-manifest_digest = "8D88DC014B9475B89E789A306239755AF4BEE74FD935EEE486ACEB2382B9C242"
-deps_digest = "397E6A9F7A624706DBDFEE056CE88391A15876868FD18A88504DA74EB458D697"
 
 [[move.package]]
 id = "Bridge"
@@ -57,3 +56,11 @@ dependencies = [
 compiler-version = "1.45.0"
 edition = "2024.beta"
 flavor = "sui"
+
+[env]
+
+[env.testnet]
+chain-id = "4c78adac"
+original-published-id = "0x4c32990bc44dbe6fe84996e0303f07a848e20aa20b554fae757db7f3fdf4e5e5"
+latest-published-id = "0x4c32990bc44dbe6fe84996e0303f07a848e20aa20b554fae757db7f3fdf4e5e5"
+published-version = "1"
