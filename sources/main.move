@@ -1,28 +1,36 @@
 module atomic_swapv1::AtomicSwap {
 
-    use sui::sui::{Self, SUI};                      // Sui tokens
-    use sui::coin::{Self, Coin};                    // the coins
-    use sui::clock::{Self, Clock};                  // To access time
-    use sui::transfer;                              // To make the object publicly accessible
-    use sui::event;                                 // To emit events
+    use sui::sui::{Self, SUI};
+    use sui::coin::{Self, Coin};
+    use sui::clock::{Self, Clock};
+    use sui::transfer;
+    use sui::event;
     use sui::table::{Self, Table};
     use sui::hash::{keccak256, blake2b256};
-    use 0x1::hash;                                  // To hash the secret, for the case of redeeming
+    use 0x1::hash;
     use sui::address;
     use sui::ecdsa_k1;
     use sui::ed25519;
     use sui::object_table::{Self, ObjectTable};
     use sui::bcs;
+
     // Error codes, self-explanatory
-    const ENOT_ENOUGH_BALANCE: u64 = 1;
-    const ESWAP_EXPIRED: u64 = 2;
-    const ESWAP_NOT_EXPIRED: u64 = 3;
+    const EINSUFFICIENT_BALANCE: u64 = 1;
+    const EORDER_EXPIRED: u64 = 2;
+    const EORDER_NOT_EXPIRED: u64 = 3;
     const ESECRET_MISMATCH: u64 = 4;
     const ECREATED_SWAP_NOT_OURS: u64 = 5;
-    const ESWAP_ALREADY_REDEEMED_OR_REFUNDED: u64 = 6;
-    const EORDER_NOT_FOUND: u64 = 7;
+    const EORDER_FULFILLED: u64 = 6;
+    const EORDER_NOT_INITIATED: u64 = 7;
     const ENOT_EMPTY:u64 = 8;
-
+    const EINVALID_SIGNATURE: u64 = 9;
+    const EDUPLICATE_ORDER:u64 = 10;
+    const EINCORRECT_SECRET: u64 = 11;
+    const EZERO_ADDRESS_REDEEMER: u64 = 12;
+    const EZERO_TIMELOCK: u64 = 13;
+    const EZERO_AMOUNT: u64 = 14;
+    const ESAME_INITIATOR_REDEEMER: u64 = 15;
+    
     const REFUND_TYPEHASH: vector<u8> = b"Refund(bytes32 orderId)";
     const INITIATE_TYPEHASH: vector<u8> = b"Initiate(address redeemer,uint256 timelock,uint256 amount,bytes32 secretHash)";
 
@@ -32,20 +40,17 @@ module atomic_swapv1::AtomicSwap {
         is_fulfilled: bool,
         initiator: address,
         redeemer: address,
-        redeemer_pk: vector<u8>,
+        redeemer_pubk: vector<u8>,
         amount: u64,
         initiated_at: u64,
         coins: Coin<CoinType>,
         timelock: u64,
-        secret_hash: vector<u8>
     }
 
     public struct OrdersRegistry<phantom CoinType> has key, store {
         id: UID,
         orders: ObjectTable<vector<u8>, Order<CoinType>>
     }
-
-    // public struct AdminCap has key { id: UID }
 
     // --------------------------------------- Event Structs ---------------------------------------
 
@@ -58,24 +63,14 @@ module atomic_swapv1::AtomicSwap {
 
     // Struct for the refund Event
     public struct Refunded has copy, drop {
-        order_id: vector<u8>,
-        initiator: address,
-        redeemer: address,
+        order_id: vector<u8>
     }
 
     // Struct for the redeem Event
     public struct Redeemed has copy, drop {
             order_id: vector<u8>,
-            initiator: address,
-            redeemer: address,
+            secret_hash: vector<u8>,
             secret: vector<u8>
-    }
-
-    fun init(ctx: &mut TxContext) {
-        // transfer::transfer(
-        //     AdminCap { id: object::new(ctx) },
-        //     ctx.sender()
-        // );
     }
 
     public fun create_orders_registry<CoinType>(ctx: &mut TxContext): ID{
@@ -88,6 +83,7 @@ module atomic_swapv1::AtomicSwap {
         orders_reg_id
     }
 
+    // create order_id (equivalent to abi.enocde)
     public fun create_order_id(secret_hash: vector<u8>, initiator: address): vector<u8> {
         let sui_chain_id = x"0000000000000000000000000000000000000000000000000000000000000000";
         // Convert the address to a vector<u8> manually
@@ -105,59 +101,24 @@ module atomic_swapv1::AtomicSwap {
         let hash_result: vector<u8> = hash::sha2_256(data);
         hash_result
     }
+
     // Creates a order object and makes it a shared_object
     public fun initialize_Swap<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>,
         redeemer: address,
-        redeemer_pk: vector<u8>,
+        redeemer_pubk: vector<u8>,
         secret_hash: vector<u8>,
         amount: u64, 
         timelock: u64,
         coins: Coin<CoinType>,
         clock: &Clock,
         ctx: &mut TxContext
-    ): vector<u8> {
-        // Check that value of coins exceeds amount in order
-        assert!(coin::value<CoinType>(&coins) >= amount, ENOT_ENOUGH_BALANCE);
-
-        let id = object::new(ctx);
-        let object_id = object::uid_to_inner(&id);
-        let order_id = create_order_id(secret_hash, ctx.sender());
-
-        // Check if the order_id already exists
-        // assert!(!table::contains(&orders_reg.orders, order_id), EDUPLICATE_ORDER);
-
-        // Emit event
-        event::emit(Initiated {
-            order_id: order_id,
-            initiator: tx_context::sender(ctx),
-            redeemer: redeemer
-        });
-        // get the required amount out of the users balance
-        let order = Order {
-            id: id,
-            initiator: tx_context::sender(ctx),                                 // The address of the initiator 
-            is_fulfilled: false,                                                // Create a new ID for the object
-            redeemer: redeemer,                                                 // The address of the redeemer
-            redeemer_pk: redeemer_pk,
-            amount: amount,                                                     // The amount being locked for swap
-            secret_hash: secret_hash,                                           // The hashed secret
-            initiated_at: clock::timestamp_ms(clock),                           // The amount to be transferred
-            coins,                                                              // The coins where value(coins) == amount
-            timelock                                                            // THe expiry, being (timelock) hours away from initialization time
-        };
-        
-        ////////////////
-        // let obj_id = order.borrow_uid();
-        ////////////////
-
-        orders_reg.orders.add(order_id, order);
-        // Share the object so anyone can access nad mutate it
-        // transfer::share_object<Order<CoinType>>(order);
-        order_id
+    ) {
+        assert!(tx_context::sender(ctx) != redeemer, ESAME_INITIATOR_REDEEMER);
+        initiate_<CoinType>(orders_reg, tx_context::sender(ctx), redeemer, redeemer_pubk, secret_hash, amount, timelock, coins, clock, ctx);
     }
 
-    public fun initiate_digest(redeemer: address, timelock: u64, amount: u64, secret_hash: vector<u8>): vector<u8>{
+    fun initiate_digest(redeemer: address, timelock: u64, amount: u64, secret_hash: vector<u8>): vector<u8>{
         let mut data = vector::empty<u8>();
         let amt = amount.to_string().into_bytes();
         let tl = timelock.to_string().into_bytes();
@@ -166,7 +127,6 @@ module atomic_swapv1::AtomicSwap {
         vector::append(&mut data, tl);
         vector::append(&mut data, amt);
         vector::append(&mut data, secret_hash);
-        // Compute the keccak256 of the concatenated data
         let hash_result: vector<u8> = keccak256(&data);
         hash_result
     }
@@ -184,47 +144,12 @@ module atomic_swapv1::AtomicSwap {
         coins: Coin<CoinType>,
         clock: &Clock,
         ctx: &mut TxContext
-    ): vector<u8> {
-        // Check that value of coins exceeds amount in order
-        assert!(coin::value<CoinType>(&coins) >= amount, ENOT_ENOUGH_BALANCE);
+    ){
+        assert!(initiator != redeemer, ESAME_INITIATOR_REDEEMER);
         let init_digest = initiate_digest(redeemer, timelock, amount, secret_hash);
         let verify = ed25519::ed25519_verify(&signature, &initiator_pubk, &init_digest);
-        assert!(verify == true, 0);
-        
-        let id = object::new(ctx);
-        let object_id = object::uid_to_inner(&id);
-        let order_id = create_order_id(secret_hash, initiator);
-        // Check if the order_id already exists
-        // assert!(!table::contains(&orders_reg.orders, order_id), EDUPLICATE_ORDER);
-
-        // Emit event
-        event::emit(Initiated {
-            order_id: order_id,
-            initiator: initiator,
-            redeemer: redeemer
-        });
-        // get the required amount out of the users balance
-        let order = Order {
-            id: id,
-            initiator: initiator,                                 // The address of the initiator 
-            is_fulfilled: false,                                                // Create a new ID for the object
-            redeemer: redeemer,                                                 // The address of the redeemer
-            redeemer_pk: redeemer_pubk,
-            amount: amount,                                                     // The amount being locked for swap
-            secret_hash: secret_hash,                                           // The hashed secret
-            initiated_at: clock::timestamp_ms(clock),                           // The amount to be transferred
-            coins,                                                              // The coins where value(coins) == amount
-            timelock                                                            // THe expiry, being (timelock) hours away from initialization time
-        };
-        
-        ////////////////
-        // let obj_id = order.borrow_uid();
-        ////////////////
-
-        orders_reg.orders.add(order_id, order);
-        // Share the object so anyone can access nad mutate it
-        // transfer::share_object<Order<CoinType>>(order);
-        order_id
+        assert!(verify == true, EINVALID_SIGNATURE);
+        initiate_<CoinType>(orders_reg, initiator, redeemer, redeemer_pubk, secret_hash, amount, timelock, coins, clock, ctx);
     }
 
     // Refunds the coins and destroys Order object
@@ -234,13 +159,11 @@ module atomic_swapv1::AtomicSwap {
         clock: &Clock,
         ctx: &mut TxContext
     ){
+        assert!(object_table::contains(&orders_reg.orders, order_id), EORDER_NOT_INITIATED);
         let mut order = object_table::borrow_mut(&mut orders_reg.orders, order_id);
         // Makes sure that order has expired
-        assert!(clock::timestamp_ms(clock) >= order.initiated_at + order.timelock, ESWAP_NOT_EXPIRED);
-        assert!(order.is_fulfilled == false, ESWAP_ALREADY_REDEEMED_OR_REFUNDED);
-        // If coins are 0, then order has been used
-        assert!(coin::value<CoinType>(&order.coins) > 0, ESWAP_ALREADY_REDEEMED_OR_REFUNDED);
-        // Unpack the Order object, only need initiator, coins and id (it cant be dropped) so the rest are all _ 
+        assert!(order.is_fulfilled == false, EORDER_FULFILLED);
+        assert!(clock::timestamp_ms(clock) >= order.initiated_at + order.timelock, EORDER_NOT_EXPIRED);
         let amount = order.amount;
         let initiator = order.initiator;
         order.is_fulfilled = true;
@@ -248,8 +171,6 @@ module atomic_swapv1::AtomicSwap {
         // Emit event
         event::emit(Refunded {
             order_id: order_id,
-            initiator: order.initiator,
-            redeemer: order.redeemer
         });
 
         // Transfer the coins to the initiator
@@ -263,7 +184,6 @@ module atomic_swapv1::AtomicSwap {
         );
     }
 
-    // Redeems the coins and destroys the Order object
     public fun redeem_Swap<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>,
         order_id: vector<u8>,
@@ -271,20 +191,24 @@ module atomic_swapv1::AtomicSwap {
         clock: &Clock,
         ctx: &mut TxContext
     ){
-        assert!(object_table::contains(&orders_reg.orders, order_id), EORDER_NOT_FOUND);
+        assert!(object_table::contains(&orders_reg.orders, order_id), EORDER_NOT_INITIATED);
         let mut order = object_table::borrow_mut(&mut orders_reg.orders, order_id);
-        // Makes sure that order has not expired
-        assert!(clock::timestamp_ms(clock) < order.timelock + order.initiated_at, ESWAP_EXPIRED);
+        assert!(order.is_fulfilled == false, EORDER_FULFILLED);
+
         // Ensure that the secret sent, after hashing, is same as the hashed_secret we have stored
         let secret_hash = hash::sha2_256(secret);
-        assert!(order.secret_hash == secret_hash, ESECRET_MISMATCH);
-        assert!(order.is_fulfilled == false, ESWAP_ALREADY_REDEEMED_OR_REFUNDED);
+        let calc_order_id = create_order_id(secret_hash, order.initiator);
+        assert!(calc_order_id == order_id, ESECRET_MISMATCH);
         // Unpack the Order object, only need initiator, coins and id (it cant be dropped) so the rest are all _ 
         let amount = order.amount;
         let redeemer = order.redeemer;
-
-        // If coins are 0, then order has been used
-        assert!(coin::value<CoinType>(&order.coins) > 0, ESWAP_ALREADY_REDEEMED_OR_REFUNDED);
+        order.is_fulfilled = true;
+        // Emit event
+        event::emit(Redeemed {
+            order_id,
+            secret_hash,
+            secret
+        });
 
         // Transfer the coins to the initiator
         transfer::public_transfer(
@@ -296,32 +220,68 @@ module atomic_swapv1::AtomicSwap {
             redeemer
         );
 
-        order.is_fulfilled = true;
+        
+    }
+
+    fun initiate_<CoinType>(
+        orders_reg: &mut OrdersRegistry<CoinType>,
+        initiator: address,
+        redeemer: address,
+        redeemer_pubk: vector<u8>,
+        secret_hash: vector<u8>,
+        amount: u64, 
+        timelock: u64,
+        coins: Coin<CoinType>,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ){
+        let id = object::new(ctx);
+        let order_id = create_order_id(secret_hash, initiator);
+        
+        // Check if the order_id already exists
+        assert!(object_table::contains(&orders_reg.orders, order_id) == false, EDUPLICATE_ORDER);
+
+        // Check that value of coins exceeds amount in order
+        assert!(coin::value<CoinType>(&coins) >= amount, EINSUFFICIENT_BALANCE);
         
         // Emit event
-        event::emit(Redeemed {
+        event::emit(Initiated {
             order_id: order_id,
-            initiator: order.initiator,
-            redeemer: order.redeemer,
-            secret: secret
+            initiator: initiator,
+            redeemer: redeemer
         });
+
+        // get the required amount out of the users balance
+        let order = Order {
+            id: id,
+            initiator: initiator,                                 // The address of the initiator 
+            is_fulfilled: false,                                                // Create a new ID for the object
+            redeemer: redeemer,                                                 // The address of the redeemer
+            redeemer_pubk: redeemer_pubk,
+            amount: amount,                                        // The hashed secret
+            initiated_at: clock::timestamp_ms(clock),                           // The amount to be transferred
+            coins,                                                              // The coins where value(coins) == amount
+            timelock                                                            // THe expiry, being (timelock) hours away from initialization time
+        };
+
+        orders_reg.orders.add(order_id, order);
+        // Share the object so anyone can access nad mutate it
+        // transfer::share_object<Order<CoinType>>(order);
     }
 
     public fun instant_refund<CoinType>(orders_reg: &mut OrdersRegistry<CoinType>, order_id: vector<u8>, signature: vector<u8>, clock: &Clock, ctx: &mut TxContext){
-        assert!(object_table::contains(&orders_reg.orders, order_id), EORDER_NOT_FOUND);
+        assert!(object_table::contains(&orders_reg.orders, order_id), EORDER_NOT_INITIATED);
         let mut order = object_table::borrow_mut(&mut orders_reg.orders, order_id);
+        assert!(order.is_fulfilled == false, EORDER_FULFILLED);
         let refund_digest = instant_refund_digest(order_id);
-        let verify = ed25519::ed25519_verify(&signature, &order.redeemer_pk, &refund_digest);
-        assert!(verify == true, 0);
-        assert!(order.is_fulfilled == false, 0);
+        let verify = ed25519::ed25519_verify(&signature, &order.redeemer_pubk, &refund_digest);
+        assert!(verify == true, EINVALID_SIGNATURE);
         
         order.is_fulfilled = true;
 
         // Emit event
         event::emit(Refunded {
-            order_id: order_id,
-            initiator: order.initiator,
-            redeemer: order.redeemer
+            order_id: order_id
         });
 
         // Transfer the coins to the initiator
@@ -339,7 +299,7 @@ module atomic_swapv1::AtomicSwap {
         // let bytes: vector<u8> = keccak256(&REFUND_TYPEHASH);
         encode(REFUND_TYPEHASH, order_id)
     }
-    public fun encode(typehash: vector<u8>, order_id: vector<u8>) : vector<u8> {
+    fun encode(typehash: vector<u8>, order_id: vector<u8>) : vector<u8> {
         // Concatenate the typehash and order_id
         let mut data = vector::empty<u8>();
         vector::append(&mut data, typehash);

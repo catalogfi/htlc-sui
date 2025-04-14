@@ -50,7 +50,7 @@ const order_reg_id = "0x09490c1aab084cbbe93772819bb9c415a2ddaf4398ea91a858934e17
 let order_reg = tx.object(order_reg_id);
 console.log("THIS IS ORDER REGISTRY : ->>>>>>> ", order_reg);
 // 2) secret
-let secret = "test1";
+let secret = "test3";
 const secretHash = crypto.createHash('sha256').update(secret).digest();
 console.log(secretHash);
 console.log("Secret hash: ", secretHash.toString('hex'));
@@ -156,16 +156,16 @@ console.log("Signature:", Buffer.from(initSignature).toString('hex'));
 //     })
 //-------------------------------------------------------------------------------------------------------//
 //-------------------------------------------REDEEM_SWAP-------------------------------------------------//
-tx.moveCall({
-    target: "0xc67bb79f8b7ab6bb34f796adc026996f73c978db01d567bcf5fb3db774384493::AtomicSwap::redeem_Swap",
-    typeArguments: ["0x2::sui::SUI"],
-    arguments: [
-        order_reg,
-        tx.pure.vector("u8", orderIdBytes),
-        tx.pure.vector("u8", Buffer.from(secret)),
-        tx.object(SUI_CLOCK_OBJECT_ID)
-      ]
-    })
+// tx.moveCall({
+//     target: "0xc67bb79f8b7ab6bb34f796adc026996f73c978db01d567bcf5fb3db774384493::AtomicSwap::redeem_Swap",
+//     typeArguments: ["0x2::sui::SUI"],
+//     arguments: [
+//         order_reg,
+//         tx.pure.vector("u8", orderIdBytes),
+//         tx.pure.vector("u8", Buffer.from(secret)),
+//         tx.object(SUI_CLOCK_OBJECT_ID)
+//       ]
+//     })
 //-------------------------------------------------------------------------------------------------------//
 function instantRefundDigest(orderId) {
   // Create the type hash - must match EXACTLY what's in the contract
@@ -185,16 +185,16 @@ console.log("Refund digest to sign:", refundDigest.toString('hex'));
 const refundSignature = await keypairBob.sign(refundDigest);
 console.log("Signature:", Buffer.from(refundSignature).toString('hex'));
 //----------------------------------------INSTANT_REFUND-------------------------------------------------//
-// tx.moveCall({
-//   target: `${package_add}::AtomicSwap::instant_refund`,
-//   typeArguments: ["0x2::sui::SUI"],
-//   arguments: [
-//     tx.pure.vector("u8", orderIdBytes),
-//     tx.object(order_reg_id),
-//     tx.pure.vector("u8", Buffer.from(refundSignature)), 
-//     tx.object(SUI_CLOCK_OBJECT_ID)
-//   ]
-// });
+tx.moveCall({
+  target: `${package_add}::AtomicSwap::instant_refund`,
+  typeArguments: ["0x2::sui::SUI"],
+  arguments: [
+    tx.object(order_reg_id),
+    tx.pure.vector("u8", orderIdBytes),
+    tx.pure.vector("u8", Buffer.from(refundSignature)), 
+    tx.object(SUI_CLOCK_OBJECT_ID)
+  ]
+});
 //-------------------------------------------------------------------------------------------------------//
 
 
