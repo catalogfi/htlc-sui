@@ -33,6 +33,7 @@ module atomic_swapv1::AtomicSwap {
     const EZERO_TIMELOCK: u64 = 13;
     const EZERO_AMOUNT: u64 = 14;
     const ESAME_INITIATOR_REDEEMER: u64 = 15;
+    const EZERO_ADDRESS_INITIATOR: u64 = 16;
     
     // ================ Type Hash Constants ================
     const REFUND_TYPEHASH: vector<u8> = b"Refund(bytes32 orderId)";
@@ -44,7 +45,6 @@ module atomic_swapv1::AtomicSwap {
         id: UID,
         is_fulfilled: bool,
         initiator: address,
-        redeemer: address,
         redeemer_pubk: vector<u8>,
         amount: u64,
         initiated_at: u64,
@@ -93,7 +93,6 @@ module atomic_swapv1::AtomicSwap {
     /// Initiates a new atomic swap
     public fun initialize_Swap<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>,
-        redeemer: address,
         redeemer_pubk: vector<u8>,
         secret_hash: vector<u8>,
         amount: u64, 
@@ -102,16 +101,18 @@ module atomic_swapv1::AtomicSwap {
         clock: &Clock,
         ctx: &mut TxContext
     ) {
+        let redeemer = gen_addr(redeemer_pubk);
+        assert!(redeemer != @0x0, EZERO_ADDRESS_REDEEMER);
         assert!(tx_context::sender(ctx) != redeemer, ESAME_INITIATOR_REDEEMER);
+        assert!(amount != 0, EZERO_AMOUNT);
+        assert!(timelock != 0, EZERO_TIMELOCK);
         initiate_<CoinType>(orders_reg, tx_context::sender(ctx), redeemer, redeemer_pubk, secret_hash, amount, timelock, coins, clock, ctx);
     }
 
     /// Initiates a swap with a signature from the initiator
     public fun initiate_with_sig<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>,
-        initiator: address,
         initiator_pubk: vector<u8>,
-        redeemer: address,
         redeemer_pubk: vector<u8>,
         signature: vector<u8>,
         secret_hash: vector<u8>,
@@ -121,8 +122,15 @@ module atomic_swapv1::AtomicSwap {
         clock: &Clock,
         ctx: &mut TxContext
     ){
+        let initiator = gen_addr(initiator_pubk);
+        let redeemer = gen_addr(redeemer_pubk);
+        assert!(redeemer != @0x0, EZERO_ADDRESS_REDEEMER);
+        assert!(initiator != @0x0, EZERO_ADDRESS_INITIATOR);
         assert!(initiator != redeemer, ESAME_INITIATOR_REDEEMER);
+        assert!(amount != 0, EZERO_AMOUNT);
+        assert!(timelock != 0, EZERO_TIMELOCK);
         let init_digest = initiate_digest(redeemer, timelock, amount, secret_hash);
+        // std::debug::print(&init_digest);
         let verify = ed25519::ed25519_verify(&signature, &initiator_pubk, &init_digest);
         assert!(verify == true, EINVALID_SIGNATURE);
         initiate_<CoinType>(orders_reg, initiator, redeemer, redeemer_pubk, secret_hash, amount, timelock, coins, clock, ctx);
@@ -185,6 +193,7 @@ module atomic_swapv1::AtomicSwap {
         // Verify secret matches
         let secret_hash = hash::sha2_256(secret);
         let calc_order_id = create_order_id(secret_hash, order.initiator);
+        let redeemer = gen_addr(order.redeemer_pubk);
         assert!(calc_order_id == order_id, ESECRET_MISMATCH);
         
         // Mark as fulfilled
@@ -200,7 +209,7 @@ module atomic_swapv1::AtomicSwap {
         // Transfer coins to redeemer
         transfer::public_transfer(
             coin::split<CoinType>(&mut order.coins, order.amount, ctx), 
-            order.redeemer
+            redeemer
         );
     }
 
@@ -284,6 +293,18 @@ module atomic_swapv1::AtomicSwap {
         keccak256(&data)
     }
 
+    /// Internal function to generate address from a public key
+    fun gen_addr(pubk: vector<u8>): address {
+        // 0x00 = ED25519, 0x01 = Secp256k1, 0x02 = Secp256r1, 0x03 = multiSig
+        let flag: u8 = 0;
+        let mut preimage = vector::empty<u8>();
+        vector::push_back(&mut preimage, flag);
+        vector::append(&mut preimage, pubk);
+        let add = blake2b256(&preimage);
+        let address = address::from_bytes(add);
+        address
+    }
+
     /// Internal function to initialize a swap
     fun initiate_<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>,
@@ -311,7 +332,6 @@ module atomic_swapv1::AtomicSwap {
             id: object::new(ctx),
             initiator,
             is_fulfilled: false,
-            redeemer,
             redeemer_pubk,
             amount,
             initiated_at: clock::timestamp_ms(clock),
@@ -334,9 +354,13 @@ module atomic_swapv1::AtomicSwap {
     // // ================================================= Test Only Getters =====================================
 
     #[test_only]
-    public fun get_order<CoinType>(orders_reg: &mut OrdersRegistry<CoinType>, order_id : vector<u8>) : &mut Order<CoinType>{
-        object_table::borrow_mut(&mut orders_reg.orders, order_id)
+    public fun get_order<CoinType>(orders_reg: &OrdersRegistry<CoinType>, order_id : vector<u8>) : &Order<CoinType>{
+        object_table::borrow(&orders_reg.orders, order_id)
     }
+    // #[test_only]
+    // public fun get_table<CoinType>(orders_reg: &OrdersRegistry<CoinType>): ObjectTable<vector<u8>, Order<CoinType>>{
+    //     orders_reg.orders
+    // }
     #[test_only]
     public fun generate_order_id(secret_hash: vector<u8>, initiator: address): vector<u8> {
         create_order_id(secret_hash, initiator)
