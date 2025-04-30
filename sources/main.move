@@ -191,11 +191,12 @@ module atomic_swapv1::AtomicSwap {
     ) {
         assert!(dynamic_field::exists_(&orders_reg.id, order_id), EORDER_NOT_INITIATED);
         
+        let registry_id = object::uid_to_address(&orders_reg.id);
         let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
         
         assert!(!order.is_fulfilled, EORDER_FULFILLED);
         
-        let refund_digest = instant_refund_digest(order_id);
+        let refund_digest = instant_refund_digest(order_id, registry_id);
         let verified = ed25519::ed25519_verify(&signature, &order.redeemer_pubk, &refund_digest);
         assert!(verified, EINVALID_SIGNATURE);
         
@@ -212,9 +213,9 @@ module atomic_swapv1::AtomicSwap {
     // ================ Helper Functions ================
 
     /// Creates a digest for refund verification
-    public fun instant_refund_digest(order_id: vector<u8>): vector<u8> {
+    public fun instant_refund_digest(order_id: vector<u8>, registry_id: address): vector<u8> {
         let refund_typehash = REFUND_TYPEHASH;
-        encode(keccak256(&refund_typehash), order_id)
+        encode(keccak256(&refund_typehash), order_id, address::to_bytes(registry_id))
     }
 
     // ================ Internal Functions ================
@@ -228,6 +229,8 @@ module atomic_swapv1::AtomicSwap {
     }
     /// Creates a unique order ID based on secret hash and initiator address
     fun create_order_id(secret_hash: vector<u8>, initiator: address, timelock: u256, redeemer: address): vector<u8> {
+        // @note sui_chain_id needs to be changed for testnet
+        // sui_chain_id (testnet) = x"0000000000000000000000000000000000000000000000000000000000000001"
         let sui_chain_id = x"0000000000000000000000000000000000000000000000000000000000000000";
         let timelock_bytes = bcs::to_bytes(&timelock);
 
@@ -241,10 +244,11 @@ module atomic_swapv1::AtomicSwap {
     }
 
     /// Internal function to encode type hash with data
-    fun encode(typehash: vector<u8>, order_id: vector<u8>): vector<u8> {
+    fun encode(typehash: vector<u8>, order_id: vector<u8>, registry_id: vector<u8>): vector<u8> {
         let mut data = vector::empty<u8>();
         vector::append(&mut data, typehash);
         vector::append(&mut data, order_id);
+        vector::append(&mut data, registry_id);
         keccak256(&data)
     }
 
