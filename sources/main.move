@@ -1,22 +1,20 @@
+#[allow(duplicate_alias, lint(coin_field))]
 module atomic_swapv1::AtomicSwap {
 
-    use sui::sui::SUI;
+    // use sui::sui::SUI;
     use sui::coin::{Self, Coin};
     use sui::clock::{Self, Clock};
     use sui::transfer;
-    use sui::event;
     use sui::object::{Self, ID, UID};
-    use sui::table::{Self, Table};
+    use sui::event;
     use sui::hash::{keccak256, blake2b256};
     use sui::address;
-    use sui::ecdsa_k1;
     use sui::ed25519;
     use sui::dynamic_field::{Self};
     use sui::tx_context::{Self, TxContext};
     use sui::bcs;
     use std::vector;
     use 0x1::hash;
-    use sui::dynamic_field::exists_;
 
     // ================ Error Constants ================
     const EINCORRECT_FUNDS: u64 = 1;
@@ -36,7 +34,6 @@ module atomic_swapv1::AtomicSwap {
     
     // ================ Type Hash Constants ================
     const REFUND_TYPEHASH: vector<u8> = b"Refund(bytes32 orderId)";
-    const INITIATE_TYPEHASH: vector<u8> = b"Initiate(address redeemer,uint256 timelock,uint256 amount,bytes32 secretHash)";
 
     // ================ Data Structures ================
     /// Represents an atomic swap order
@@ -54,7 +51,6 @@ module atomic_swapv1::AtomicSwap {
     /// Central registry to store all active orders
     public struct OrdersRegistry<phantom CoinType> has key, store {
         id: UID,
-        // orders: ObjectTable<vector<u8>, Order<CoinType>>
     }
 
     // ================ Event Structs ================
@@ -155,7 +151,7 @@ module atomic_swapv1::AtomicSwap {
         orders_reg: &mut OrdersRegistry<CoinType>,
         order_id: vector<u8>,
         secret: vector<u8>,
-        clock: &Clock,
+        // clock: &Clock,
         ctx: &mut TxContext
     ) {
         assert!(dynamic_field::exists_(&orders_reg.id, order_id), EORDER_NOT_INITIATED);
@@ -184,13 +180,13 @@ module atomic_swapv1::AtomicSwap {
         );
     }
 
-    /// Permits immediate refund if signed by the redeemer
     // @audit-ok currently we only support Ed25519
+    /// Permits immediate refund if signed by the redeemer
     public fun instant_refund<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>, 
         order_id: vector<u8>, 
         signature: vector<u8>, 
-        clock: &Clock, 
+        // clock: &Clock, 
         ctx: &mut TxContext
     ) {
         assert!(dynamic_field::exists_(&orders_reg.id, order_id), EORDER_NOT_INITIATED);
@@ -217,7 +213,8 @@ module atomic_swapv1::AtomicSwap {
 
     /// Creates a digest for refund verification
     public fun instant_refund_digest(order_id: vector<u8>): vector<u8> {
-        encode(keccak256(&REFUND_TYPEHASH), order_id)
+        let refund_typehash = REFUND_TYPEHASH;
+        encode(keccak256(&refund_typehash), order_id)
     }
 
     // ================ Internal Functions ================
@@ -227,7 +224,7 @@ module atomic_swapv1::AtomicSwap {
         assert!(initiator != redeemer, ESAME_INITIATOR_REDEEMER);
         assert!(amount != 0, EZERO_AMOUNT);
         assert!(timelock != 0, EZERO_TIMELOCK);
-        assert!(initiator != 0, EZERO_ADDRESS_INITIATOR);
+        assert!(initiator != @0x0, EZERO_ADDRESS_INITIATOR);
     }
     /// Creates a unique order ID based on secret hash and initiator address
     fun create_order_id(secret_hash: vector<u8>, initiator: address, timelock: u256, redeemer: address): vector<u8> {
@@ -311,10 +308,6 @@ module atomic_swapv1::AtomicSwap {
     public fun generate_order_id(secret_hash: vector<u8>, initiator: address, timelock: u256, redeemer: address): vector<u8> {
         create_order_id(secret_hash, initiator, timelock, redeemer)
     }
-    #[test_only]
-    public fun get_initiate_typehash(): vector<u8> {
-        INITIATE_TYPEHASH
-    } 
     #[test_only]
     public fun get_refund_typehash(): vector<u8> {
         REFUND_TYPEHASH
