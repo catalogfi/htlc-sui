@@ -316,4 +316,8 @@ module atomic_swapv1::AtomicSwap {
     public fun get_refund_typehash(): vector<u8> {
         REFUND_TYPEHASH
     }
+    #[test_only]
+    public fun get_order_reg_id<CoinType>(orders_reg: &OrdersRegistry<CoinType>): &UID {
+        &orders_reg.id
+    }
 }
