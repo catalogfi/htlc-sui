@@ -520,47 +520,47 @@ module atomic_swapv1::AtomicSwapTests {
     }
     
     // Test zero redeemer address
-    // #[test]
-    // #[expected_failure(abort_code = AtomicSwap::EZERO_ADDRESS_REDEEMER)]
-    // fun test_zero_redeemer_address() {
-    //     let mut scenario = setup();
-    //     let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
+    #[test]
+    #[expected_failure(abort_code = AtomicSwap::EZERO_ADDRESS_REDEEMER)]
+    fun test_zero_redeemer_address() {
+        let mut scenario = setup();
+        let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
         
-    //     // Generate test data
-    //     let (_, secret_hash) = generate_secret();
-    //     let (initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
+        // Generate test data
+        let (_, secret_hash) = generate_secret();
+        let (initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
         
-    //     // Mint coins to the initiator
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-    //         transfer::public_transfer(mint_coins, initiator_address);
-    //     };
+        // Mint coins to the initiator
+        ts::next_tx(&mut scenario, ADMIN);
+        {
+            let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
+            transfer::public_transfer(mint_coins, initiator_address);
+        };
         
-    //     // Try to create a swap with zero redeemer address (should fail)
-    //     ts::next_tx(&mut scenario, initiator_address);
-    //     {
-    //         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-    //         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
+        // Try to create a swap with zero redeemer address (should fail)
+        ts::next_tx(&mut scenario, initiator_address);
+        {
+            let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+            let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
             
-    //         // This should fail due to zero redeemer address
-    //         AtomicSwap::initiate(
-    //             &mut registry,
-    //             x"00",
-    //             secret_hash,
-    //             SWAP_AMOUNT,
-    //             TIMELOCK,
-    //             init_coins,
-    //             &clock,
-    //             ts::ctx(&mut scenario)
-    //         );
+            // This should fail due to zero redeemer address
+            AtomicSwap::initiate(
+                &mut registry,
+                x"0000000000000000000000000000000000000000000000000000000000000000",
+                secret_hash,
+                SWAP_AMOUNT,
+                TIMELOCK,
+                init_coins,
+                &clock,
+                ts::ctx(&mut scenario)
+            );
             
-    //         ts::return_shared(registry);
-    //     };
+            ts::return_shared(registry);
+        };
         
-    //     clock::destroy_for_testing(clock);
-    //     ts::end(scenario);
-    // }
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
     
     // Test zero timelock
     #[test]
@@ -750,366 +750,6 @@ module atomic_swapv1::AtomicSwapTests {
         clock::destroy_for_testing(clock);
         ts::end(scenario);
     }
-
-    // // Helper to initialize a swap with signature
-    // fun init_test_swap_with_sig(
-    //     scenario: &mut Scenario, 
-    //     initiator: address,
-    //     initiator_pubk: vector<u8>,
-    //     redeemer_pubk: vector<u8>,
-    //     signature: vector<u8>,
-    //     amount: u256,
-    //     timelock: u256
-    // ): vector<u8> {
-    //     let (secret, secret_hash) = generate_secret();
-    //     let mut clock = clock::create_for_testing(ts::ctx(scenario));
-    //     // Mint coins to the initiator
-    //     ts::next_tx(scenario, ADMIN);
-    //     {
-    //         let mint_coins = mint_coins(amount, ts::ctx(scenario));
-    //         transfer::public_transfer(mint_coins, ADMIN);
-    //     };
-        
-    //     // Initialize swap with signature
-    //     ts::next_tx(scenario, ADMIN);
-    //     {
-    //         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(scenario);
-    //         let init_coins = ts::take_from_sender<Coin<SUI>>(scenario);
-            
-    //         AtomicSwap::initiate_with_sig(
-    //             &mut registry,
-    //             initiator_pubk,
-    //             redeemer_pubk,
-    //             signature,
-    //             secret_hash,
-    //             amount,
-    //             timelock,
-    //             init_coins,
-    //             &clock,
-    //             ts::ctx(scenario)
-    //         );
-            
-    //         ts::return_shared(registry);
-    //     };
-    //     clock::destroy_for_testing(clock);
-    //     // Return order ID for further operations
-    //     AtomicSwap::generate_order_id(secret_hash, initiator)
-    // }
-
-    // // Test successful swap initiation with signature
-    // #[test]
-    // fun test_init_swap_with_sig() {
-    //     let mut scenario = setup();
-    //     let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
-        
-    //     let (initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
-
-    //     let (secret, secret_hash) = generate_secret();
-    //     let order_id = AtomicSwap::generate_order_id(secret_hash, initiator_address);
-    //     let initiate_digest = AtomicSwap::initiate_digest(redeemer_address, TIMELOCK, SWAP_AMOUNT, secret_hash);
-    //     std::debug::print(&initiate_digest);
-    //     let signature = x"b1d4df5cb6105572cc9a9ce6ae10cffa4a1edc5767d65fd26a82c5d16d4019f6ea6ec03729c57b83b6e4b921419da7bbbf3ab781966d759c611db9691ba5ef02";
-        
-        
-    //     // Mint coins to the initiator
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-    //         transfer::public_transfer(mint_coins, ADMIN);
-    //     };
-        
-    //     // Initialize a swap with signature
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-    //         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-            
-    //         AtomicSwap::initiate_with_sig(
-    //             &mut registry,
-    //             initiator_pk,
-    //             redeemer_pk,
-    //             signature,
-    //             secret_hash,
-    //             SWAP_AMOUNT,
-    //             TIMELOCK,
-    //             init_coins,
-    //             &clock,
-    //             ts::ctx(&mut scenario)
-    //         );
-            
-    //         // Verify the order was created
-    //         let order = AtomicSwap::get_order(&registry, order_id);
-            
-    //         ts::return_shared(registry);
-    //     };
-        
-    //     clock::destroy_for_testing(clock);
-    //     ts::end(scenario);
-    // }
-
-    // // Test invalid signature for initialization
-    // #[test]
-    // #[expected_failure(abort_code = AtomicSwap::EINVALID_SIGNATURE)]
-    // fun test_revert_init_with_invalid_sig() {
-    //     let mut scenario = setup();
-    //     let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
-        
-    //     // Use the hardcoded values from your test
-    //     let initiator = INITIATOR;
-    //     let initiator_pk = x"b9c6ee1630ef3e711144a648db06bbb2284f7274cfbee53ffcee503cc1a49200";
-    //     let redeemer = REDEEMER;
-    //     let redeemer_pubk = x"123456"; // Simple test pubkey
-        
-    //     // Generate test data
-    //     let (secret, secret_hash) = generate_secret();
-        
-    //     // Invalid signature - modified
-    //     let invalid_signature = x"0c671a57d6c991e06f735d29d9c24dc42b3a42064e80afec0423beea80d0597f2e1885699c1d89ce08bc5b26f4665d4fe3f4efd1de8e23fadf67970e6f9a7a00";
-        
-    //     // Mint coins to the initiator
-    //     ts::next_tx(&mut scenario, initiator);
-    //     {
-    //         let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-    //         transfer::public_transfer(mint_coins, initiator);
-    //     };
-        
-    //     // Try to initialize with invalid signature (should fail)
-    //     ts::next_tx(&mut scenario, initiator);
-    //     {
-    //         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-    //         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-            
-    //         AtomicSwap::initiate_with_sig(
-    //             &mut registry,
-    //             initiator_pk,
-    //             redeemer_pubk,
-    //             invalid_signature,
-    //             secret_hash,
-    //             SWAP_AMOUNT,
-    //             TIMELOCK,
-    //             init_coins,
-    //             &clock,
-    //             ts::ctx(&mut scenario)
-    //         );
-            
-    //         ts::return_shared(registry);
-    //     };
-        
-    //     clock::destroy_for_testing(clock);
-    //     ts::end(scenario);
-    // }
-
-    // // Test same initiator and redeemer with signature
-    // #[test]
-    // #[expected_failure(abort_code = AtomicSwap::ESAME_INITIATOR_REDEEMER)]
-    // fun test_revert_init_with_sig_same_initiator_redeemer() {
-    //     let mut scenario = setup();
-    //     let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
-        
-    //     let initiator_sk = x"9bf49a6a0755f953811fce125f2683d50429c3bb49e074147e0089a52eae155f";
-    //     let initiator_pk = x"b9c6ee1630ef3e711144a648db06bbb2284f7274cfbee53ffcee503cc1a49200";
-    //     let redeemer_pubk = x"123456";
-    //     let redeemer = REDEEMER;
-
-    //     let flag: u8 = 0; // 0x00 = ED25519, 0x01 = Secp256k1, 0x02 = Secp256r1, 0x03 = multiSig
-    //     let mut preimage = vector::empty<u8>();
-    //     vector::push_back(&mut preimage, flag);
-    //     vector::append(&mut preimage, initiator_pk);
-    //     let initiator_add = blake2b256(&preimage);
-    //     let initiator_address = address::from_bytes(initiator_add);
-
-    //     let (secret, secret_hash) = generate_secret();
-    //     let order_id = AtomicSwap::generate_order_id(secret_hash, initiator_address);
-    //     let initiate_digest = AtomicSwap::initiate_digest(redeemer, TIMELOCK, SWAP_AMOUNT, secret_hash);
-    //     // std::debug::print(&initiate_digest);
-    //     let signature = x"b1d4df5cb6105572cc9a9ce6ae10cffa4a1edc5767d65fd26a82c5d16d4019f6ea6ec03729c57b83b6e4b921419da7bbbf3ab781966d759c611db9691ba5ef02";
-        
-    //     // Mint coins to the initiator
-    //     ts::next_tx(&mut scenario, initiator_address);
-    //     {
-    //         let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-    //         transfer::public_transfer(mint_coins, initiator_address);
-    //     };
-        
-    //     // Try to initialize with invalid signature (should fail)
-    //     ts::next_tx(&mut scenario, initiator_address);
-    //     {
-    //         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-    //         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-            
-    //         AtomicSwap::initiate_with_sig(
-    //             &mut registry,
-    //             initiator_pk,
-    //             initiator_pk,
-    //             signature,
-    //             secret_hash,
-    //             SWAP_AMOUNT,
-    //             TIMELOCK,
-    //             init_coins,
-    //             &clock,
-    //             ts::ctx(&mut scenario)
-    //         );
-            
-    //         ts::return_shared(registry);
-    //     };
-        
-    //     clock::destroy_for_testing(clock);
-    //     ts::end(scenario);
-    // }
-
-    // #[test]
-    // #[expected_failure(abort_code = AtomicSwap::EZERO_AMOUNT)]
-    // fun test_revert_init_with_sig_zero_amount() {
-    //     let mut scenario = setup();
-    //     let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
-        
-    //     let (initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
-
-    //     let (secret, secret_hash) = generate_secret();
-    //     let order_id = AtomicSwap::generate_order_id(secret_hash, initiator_address);
-    //     let initiate_digest = AtomicSwap::initiate_digest(redeemer_address, TIMELOCK, SWAP_AMOUNT, secret_hash);
-    //     // std::debug::print(&initiate_digest);
-    //     let signature = x"b1d4df5cb6105572cc9a9ce6ae10cffa4a1edc5767d65fd26a82c5d16d4019f6ea6ec03729c57b83b6e4b921419da7bbbf3ab781966d759c611db9691ba5ef02";
-        
-        
-    //     // Mint coins to the initiator
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-    //         transfer::public_transfer(mint_coins, ADMIN);
-    //     };
-        
-    //     // Initialize a swap with signature
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-    //         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-            
-    //         AtomicSwap::initiate_with_sig(
-    //             &mut registry,
-    //             initiator_pk,
-    //             redeemer_pk,
-    //             signature,
-    //             secret_hash,
-    //             0,
-    //             TIMELOCK,
-    //             init_coins,
-    //             &clock,
-    //             ts::ctx(&mut scenario)
-    //         );
-            
-    //         // Verify the order was created
-    //         let order = AtomicSwap::get_order(&registry, order_id);
-            
-    //         ts::return_shared(registry);
-    //     };
-        
-    //     clock::destroy_for_testing(clock);
-    //     ts::end(scenario);
-    // }
-
-    // #[test]
-    // #[expected_failure(abort_code = AtomicSwap::EZERO_TIMELOCK)]
-    // fun test_revert_init_with_sig_zero_timelock() {
-    //     let mut scenario = setup();
-    //     let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
-        
-    //     let (initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
-
-    //     let (secret, secret_hash) = generate_secret();
-    //     let order_id = AtomicSwap::generate_order_id(secret_hash, initiator_address);
-    //     let initiate_digest = AtomicSwap::initiate_digest(redeemer_address, TIMELOCK, SWAP_AMOUNT, secret_hash);
-    //     // std::debug::print(&initiate_digest);
-    //     let signature = x"b1d4df5cb6105572cc9a9ce6ae10cffa4a1edc5767d65fd26a82c5d16d4019f6ea6ec03729c57b83b6e4b921419da7bbbf3ab781966d759c611db9691ba5ef02";
-        
-        
-    //     // Mint coins to the initiator
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-    //         transfer::public_transfer(mint_coins, ADMIN);
-    //     };
-        
-    //     // Initialize a swap with signature
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-    //         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-            
-    //         AtomicSwap::initiate_with_sig(
-    //             &mut registry,
-    //             initiator_pk,
-    //             redeemer_pk,
-    //             signature,
-    //             secret_hash,
-    //             SWAP_AMOUNT,
-    //             0,
-    //             init_coins,
-    //             &clock,
-    //             ts::ctx(&mut scenario)
-    //         );
-            
-    //         // Verify the order was created
-    //         let order = AtomicSwap::get_order(&registry, order_id);
-            
-    //         ts::return_shared(registry);
-    //     };
-        
-    //     clock::destroy_for_testing(clock);
-    //     ts::end(scenario);
-    // }
-
-    // #[test]
-    // #[expected_failure(abort_code = AtomicSwap::EDUPLICATE_ORDER)]
-    // fun test_revert_init_with_sig_duplicate_order() {
-    //     let mut scenario = setup();
-    //     let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
-        
-    //     let (initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
-
-    //     let (secret, secret_hash) = generate_secret();
-    //     let order_id = AtomicSwap::generate_order_id(secret_hash, initiator_address);
-    //     let initiate_digest = AtomicSwap::initiate_digest(redeemer_address, TIMELOCK, SWAP_AMOUNT, secret_hash);
-    //     // std::debug::print(&initiate_digest);
-    //     let signature = x"b1d4df5cb6105572cc9a9ce6ae10cffa4a1edc5767d65fd26a82c5d16d4019f6ea6ec03729c57b83b6e4b921419da7bbbf3ab781966d759c611db9691ba5ef02";
-        
-    //     let gen_order_id = init_test_swap_with_sig(&mut scenario, initiator_address, initiator_pk, redeemer_pk, signature, SWAP_AMOUNT, TIMELOCK);
-        
-    //     // Mint coins to the initiator
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-    //         transfer::public_transfer(mint_coins, ADMIN);
-    //     };
-        
-    //     // Initialize a swap with signature
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-    //         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-            
-    //         AtomicSwap::initiate_with_sig(
-    //             &mut registry,
-    //             initiator_pk,
-    //             redeemer_pk,
-    //             signature,
-    //             secret_hash,
-    //             SWAP_AMOUNT,
-    //             TIMELOCK,
-    //             init_coins,
-    //             &clock,
-    //             ts::ctx(&mut scenario)
-    //         );
-            
-    //         // Verify the order was created
-    //         let order = AtomicSwap::get_order(&registry, order_id);
-            
-    //         ts::return_shared(registry);
-    //     };
-        
-    //     clock::destroy_for_testing(clock);
-    //     ts::end(scenario);
-    // }
 
     // Test successful instant refund
     #[test]
