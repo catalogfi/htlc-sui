@@ -718,15 +718,18 @@ module atomic_swapv1::AtomicSwapTests {
         // Initialize a swap
         let order_id = initialize_test_swap(&mut scenario, &clock, initiator_address, redeemer_pk, SWAP_AMOUNT, TIMELOCK);
         // std::debug::print(&order_id);
-        let refund_digest = AtomicSwap::instant_refund_digest(order_id);
-        std::debug::print(&refund_digest);
+        
         // Generate using fastcrypto-cli
-        let refund_signature = x"99e5302df708a67362553830adcc747724736054c63909ff05daab24231dbc20a1852af2febc48702c1c3fcb212434fca393db0374a76938e290a405379c2300";
+        let refund_signature = x"b75b24e38dd9e736a45c1d0351b17babe0020c45f09ff8e2832a2276bec818b21a9e7969f3986c0735b707d1a59af75e694196f3d33b3174879e973fb04ef30e";
         
         // Perform instant refund
         ts::next_tx(&mut scenario, ADMIN);
         {
             let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+            let reg_id = AtomicSwap::get_order_reg_id<SUI>(&registry);
+            let registry_addr = object::uid_to_address(reg_id);
+            let refund_digest = AtomicSwap::instant_refund_digest(order_id, registry_addr);
+            std::debug::print(&refund_digest);
             
             AtomicSwap::instant_refund(
                 &mut registry,
