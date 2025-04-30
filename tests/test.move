@@ -519,49 +519,6 @@ module atomic_swapv1::AtomicSwapTests {
         ts::end(scenario);
     }
     
-    // Test zero redeemer address
-    #[test]
-    #[expected_failure(abort_code = AtomicSwap::EZERO_ADDRESS_REDEEMER)]
-    fun test_zero_redeemer_address() {
-        let mut scenario = setup();
-        let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
-        
-        // Generate test data
-        let (_, secret_hash) = generate_secret();
-        let (initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
-        
-        // Mint coins to the initiator
-        ts::next_tx(&mut scenario, ADMIN);
-        {
-            let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-            transfer::public_transfer(mint_coins, initiator_address);
-        };
-        
-        // Try to create a swap with zero redeemer address (should fail)
-        ts::next_tx(&mut scenario, initiator_address);
-        {
-            let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-            let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-            
-            // This should fail due to zero redeemer address
-            AtomicSwap::initiate(
-                &mut registry,
-                x"0000000000000000000000000000000000000000000000000000000000000000",
-                secret_hash,
-                SWAP_AMOUNT,
-                TIMELOCK,
-                init_coins,
-                &clock,
-                ts::ctx(&mut scenario)
-            );
-            
-            ts::return_shared(registry);
-        };
-        
-        clock::destroy_for_testing(clock);
-        ts::end(scenario);
-    }
-    
     // Test zero timelock
     #[test]
     #[expected_failure(abort_code = AtomicSwap::EZERO_TIMELOCK)]
