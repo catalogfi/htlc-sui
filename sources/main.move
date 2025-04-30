@@ -1,18 +1,18 @@
 #[allow(duplicate_alias, lint(coin_field))]
 module atomic_swapv1::AtomicSwap {
-
-    // use sui::sui::SUI;
-    use sui::coin::{Self, Coin};
-    use sui::clock::{Self, Clock};
-    use sui::transfer;
-    use sui::object::{Self, ID, UID};
-    use sui::event;
-    use sui::hash::{keccak256, blake2b256};
-    use sui::address;
-    use sui::ed25519;
-    use sui::dynamic_field::{Self};
-    use sui::tx_context::{Self, TxContext};
-    use sui::bcs;
+    use sui::{
+        coin::{Self, Coin},
+        clock::{Self, Clock},
+        transfer,
+        event,
+        address,
+        ed25519,
+        bcs,
+        object::{Self, ID, UID},
+        hash::{keccak256, blake2b256},
+        dynamic_field::{Self},
+        tx_context::{Self, TxContext}
+    };
     use std::vector;
     use 0x1::hash;
 
