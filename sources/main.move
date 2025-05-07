@@ -143,7 +143,7 @@ module atomic_swapv1::AtomicSwap {
 
     /// Refunds tokens to the initiator after timelock has expired
     /// @notice This function checks if the order is expired and not fulfilled before processing the refund
-    /// @param orders_reg The registry to store the order
+    /// @param orders_reg The registry that contains the order
     /// @param order_id The ID of the order to be refunded
     /// @param clock The clock to get the current time
     /// @param ctx The transaction context
@@ -175,7 +175,7 @@ module atomic_swapv1::AtomicSwap {
 
     /// Redeems tokens by providing the secret
     /// @notice This function checks if the order is not fulfilled and verifies the secret before processing the redemption
-    /// @param orders_reg The registry to store the order
+    /// @param orders_reg The registry that contains the order
     /// @param order_id The ID of the order to be refunded
     /// @param secret The secret to redeem the tokens
     /// @param ctx The transaction context
@@ -214,7 +214,7 @@ module atomic_swapv1::AtomicSwap {
     // @audit-ok currently we only support Ed25519
     /// Permits immediate refund if signed by the redeemer
     /// @notice This function checks if the order is not fulfilled and verifies the signature before processing the refund. Allows refund before timelock expiration.
-    /// @param orders_reg The registry to store the order
+    /// @param orders_reg The registry that contains the order
     /// @param order_id The ID of the order to be refunded
     /// @param signature The signature of the redeemer
     /// @param ctx The transaction context
