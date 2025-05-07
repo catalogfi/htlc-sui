@@ -75,6 +75,8 @@ module atomic_swapv1::AtomicSwap {
 
     // ================ Public Functions ================
     /// Creates a new registry for atomic swaps of a specific coin type
+    /// @param ctx The transaction context
+    /// @return The ID of the newly created orders registry
     public fun create_orders_registry<CoinType>(ctx: &mut TxContext): ID {
         let orders_reg = OrdersRegistry<CoinType> {
             id: object::new(ctx),
@@ -85,6 +87,15 @@ module atomic_swapv1::AtomicSwap {
     }
 
     /// Initiates a new atomic swap
+    /// @notice This function calls an internal function initiate_<CoinType> to handle the actual initiation process
+    /// @param orders_reg The registry to store the order
+    /// @param redeemer_pubk The public key of the redeemer
+    /// @param secret_hash The hash of the secret
+    /// @param amount The amount of coins to swap
+    /// @param timelock The time lock period for the swap
+    /// @param coins The coins to be swapped
+    /// @param clock The clock to get the current time
+    /// @param ctx The transaction context
     public fun initiate<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>,
         redeemer_pubk: vector<u8>,
@@ -101,6 +112,17 @@ module atomic_swapv1::AtomicSwap {
         initiate_<CoinType>(orders_reg, tx_context::sender(ctx), redeemer, redeemer_pubk, secret_hash, amount, timelock, coins, clock, ctx);
     }
 
+    /// Initiates a new atomic swap on behalf of the initiator
+    /// @notice same logic as initiate but allows a different initiator
+    /// @param orders_reg The registry to store the order
+    /// @param initiator The address of the initiator
+    /// @param redeemer_pubk The public key of the redeemer
+    /// @param secret_hash The hash of the secret
+    /// @param amount The amount of coins to swap
+    /// @param timelock The time lock period for the swap
+    /// @param coins The coins to be swapped
+    /// @param clock The clock to get the current time
+    /// @param ctx The transaction context
     public fun initiate_on_behalf<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>,
         initiator: address,
@@ -120,6 +142,11 @@ module atomic_swapv1::AtomicSwap {
     }
 
     /// Refunds tokens to the initiator after timelock has expired
+    /// @notice This function checks if the order is expired and not fulfilled before processing the refund
+    /// @param orders_reg The registry to store the order
+    /// @param order_id The ID of the order to be refunded
+    /// @param clock The clock to get the current time
+    /// @param ctx The transaction context
     public fun refund_swap<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>,
         order_id: vector<u8>,
@@ -147,11 +174,15 @@ module atomic_swapv1::AtomicSwap {
     }
 
     /// Redeems tokens by providing the secret
+    /// @notice This function checks if the order is not fulfilled and verifies the secret before processing the redemption
+    /// @param orders_reg The registry to store the order
+    /// @param order_id The ID of the order to be refunded
+    /// @param secret The secret to redeem the tokens
+    /// @param ctx The transaction context
     public fun redeem_swap<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>,
         order_id: vector<u8>,
         secret: vector<u8>,
-        // clock: &Clock,
         ctx: &mut TxContext
     ) {
         assert!(dynamic_field::exists_(&orders_reg.id, order_id), EORDER_NOT_INITIATED);
@@ -182,11 +213,15 @@ module atomic_swapv1::AtomicSwap {
 
     // @audit-ok currently we only support Ed25519
     /// Permits immediate refund if signed by the redeemer
+    /// @notice This function checks if the order is not fulfilled and verifies the signature before processing the refund. Allows refund before timelock expiration.
+    /// @param orders_reg The registry to store the order
+    /// @param order_id The ID of the order to be refunded
+    /// @param signature The signature of the redeemer
+    /// @param ctx The transaction context
     public fun instant_refund<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>, 
         order_id: vector<u8>, 
         signature: vector<u8>, 
-        // clock: &Clock, 
         ctx: &mut TxContext
     ) {
         assert!(dynamic_field::exists_(&orders_reg.id, order_id), EORDER_NOT_INITIATED);
@@ -213,6 +248,9 @@ module atomic_swapv1::AtomicSwap {
     // ================ Helper Functions ================
 
     /// Creates a digest for refund verification
+    /// @param order_id The ID of the order to be refunded
+    /// @param registry_id The ID of the orders registry
+    /// @return The digest for refund verification
     public fun instant_refund_digest(order_id: vector<u8>, registry_id: address): vector<u8> {
         let refund_typehash = REFUND_TYPEHASH;
         encode(keccak256(&refund_typehash), order_id, address::to_bytes(registry_id))
@@ -220,6 +258,11 @@ module atomic_swapv1::AtomicSwap {
 
     // ================ Internal Functions ================
 
+    /// Validates the parameters for initiating a swap
+    /// @param redeemer The address of the redeemer
+    /// @param initiator The address of the initiator
+    /// @param amount The amount of coins to swap
+    /// @param timelock The time lock period for the swap
     fun safe_params(redeemer: address, initiator: address, amount: u256, timelock: u256){
         assert!(redeemer != @0x0, EZERO_ADDRESS_REDEEMER);
         assert!(initiator != redeemer, ESAME_INITIATOR_REDEEMER);
@@ -228,6 +271,11 @@ module atomic_swapv1::AtomicSwap {
         assert!(initiator != @0x0, EZERO_ADDRESS_INITIATOR);
     }
     /// Creates a unique order ID based on secret hash and initiator address
+    /// @param secret_hash The hash of the secret
+    /// @param initiator The address of the initiator
+    /// @param timelock The time lock period for the swap
+    /// @param redeemer The address of the redeemer
+    /// @return The unique order ID
     fun create_order_id(secret_hash: vector<u8>, initiator: address, timelock: u256, redeemer: address): vector<u8> {
         // @note sui_chain_id needs to be changed for testnet
         // sui_chain_id (testnet) = x"0000000000000000000000000000000000000000000000000000000000000001"
@@ -244,6 +292,10 @@ module atomic_swapv1::AtomicSwap {
     }
 
     /// Internal function to encode type hash with data
+    /// @param typehash The type hash to be encoded
+    /// @param order_id The ID of the order
+    /// @param registry_id The ID of the orders registry
+    /// @return The encoded data
     fun encode(typehash: vector<u8>, order_id: vector<u8>, registry_id: vector<u8>): vector<u8> {
         let mut data = vector::empty<u8>();
         vector::append(&mut data, typehash);
@@ -253,6 +305,9 @@ module atomic_swapv1::AtomicSwap {
     }
 
     /// Internal function to generate address from a public key
+    /// @param pubk The public key to be converted to address
+    /// @return The generated address
+    /// @note Currently only supports Ed25519 public keys
     fun gen_addr(pubk: vector<u8>): address {
         // 0x00 = ED25519, 0x01 = Secp256k1, 0x02 = Secp256r1, 0x03 = multiSig
         assert!(vector::length(&pubk) == 32, EINVALID_PUBKEY);
@@ -265,6 +320,7 @@ module atomic_swapv1::AtomicSwap {
     }
 
     /// Internal function to initiate a swap
+    /// @notice params are passed from initiate or initiate_on_behalf
     fun initiate_<CoinType>(
         orders_reg: &mut OrdersRegistry<CoinType>,
         initiator: address,
