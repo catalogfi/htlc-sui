@@ -25,12 +25,11 @@ module atomic_swapv1::AtomicSwap {
     const EInvalidSignature: u64 = 6;
     const EDuplicateOrder: u64 = 7;
     const EIncorrectSecret: u64 = 8;
-    const EZeroAddressRedeemer: u64 = 9;
-    const EZeroTimelock: u64 = 10;
-    const EZeroAmount: u64 = 11;
-    const ESameInitiatorRedeemer: u64 = 12;
-    const ESameFunderRedeemer: u64 = 13;
-    const EInvalidPubkey: u64 = 14;
+    const EZeroTimelock: u64 = 9;
+    const EZeroAmount: u64 = 10;
+    const ESameInitiatorRedeemer: u64 = 11;
+    const ESameFunderRedeemer: u64 = 12;
+    const EInvalidPubkey: u64 = 13;
 
     
     // ================ Type Hash Constants ================
@@ -265,7 +264,6 @@ module atomic_swapv1::AtomicSwap {
     /// @param amount The amount of coins to swap
     /// @param timelock The time lock period for the swap
     fun safe_params(redeemer: address, initiator: address, amount: u256, timelock: u256){
-        assert!(redeemer != @0x0, EZeroAddressRedeemer);
         assert!(initiator != redeemer, ESameInitiatorRedeemer);
         assert!(amount != 0, EZeroAmount);
         assert!(timelock != 0, EZeroTimelock);
