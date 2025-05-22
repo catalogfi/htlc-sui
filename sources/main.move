@@ -17,20 +17,21 @@ module atomic_swapv1::AtomicSwap {
     use 0x1::hash;
 
     // ================ Error Constants ================
-    const EINCORRECT_FUNDS: u64 = 1;
-    const EORDER_NOT_EXPIRED: u64 = 2;
-    const EZERO_ADDRESS_INITIATOR: u64 = 3;
-    const EORDER_FULFILLED: u64 = 4;
-    const EORDER_NOT_INITIATED: u64 = 5;
-    const EINVALID_SIGNATURE: u64 = 6;
-    const EDUPLICATE_ORDER: u64 = 7;
-    const EINCORRECT_SECRET: u64 = 8;
-    const EZERO_ADDRESS_REDEEMER: u64 = 9;
-    const EZERO_TIMELOCK: u64 = 10;
-    const EZERO_AMOUNT: u64 = 11;
-    const ESAME_INITIATOR_REDEEMER: u64 = 12;
-    const ESAME_FUNDER_REDEEMER: u64 = 13;
-    const EINVALID_PUBKEY: u64 = 14;
+    const EIncorrectFunds: u64 = 1;
+    const EOrderNotExpired: u64 = 2;
+    const EZeroAddressInitiator: u64 = 3;
+    const EOrderFulfilled: u64 = 4;
+    const EOrderNotInitiated: u64 = 5;
+    const EInvalidSignature: u64 = 6;
+    const EDuplicateOrder: u64 = 7;
+    const EIncorrectSecret: u64 = 8;
+    const EZeroAddressRedeemer: u64 = 9;
+    const EZeroTimelock: u64 = 10;
+    const EZeroAmount: u64 = 11;
+    const ESameInitiatorRedeemer: u64 = 12;
+    const ESameFunderRedeemer: u64 = 13;
+    const EInvalidPubkey: u64 = 14;
+
     
     // ================ Type Hash Constants ================
     const REFUND_TYPEHASH: vector<u8> = b"Refund(bytes32 orderId)";
@@ -108,7 +109,7 @@ module atomic_swapv1::AtomicSwap {
     ) {
         let redeemer = gen_addr(redeemer_pubk);
         safe_params(redeemer, tx_context::sender(ctx), amount, timelock);
-        assert!(coin::value<CoinType>(&coins) as u256 == amount, EINCORRECT_FUNDS);
+        assert!(coin::value<CoinType>(&coins) as u256 == amount, EIncorrectFunds);
         initiate_<CoinType>(orders_reg, tx_context::sender(ctx), redeemer, redeemer_pubk, secret_hash, amount, timelock, coins, clock, ctx);
     }
 
@@ -135,9 +136,9 @@ module atomic_swapv1::AtomicSwap {
         ctx: &mut TxContext
     ){
         let redeemer = gen_addr(redeemer_pubk);
-        assert!(tx_context::sender(ctx) != redeemer, ESAME_FUNDER_REDEEMER);
+        assert!(tx_context::sender(ctx) != redeemer, ESameFunderRedeemer);
         safe_params(redeemer, initiator, amount, timelock);
-        assert!(coin::value<CoinType>(&coins) as u256 == amount, EINCORRECT_FUNDS);
+        assert!(coin::value<CoinType>(&coins) as u256 == amount, EIncorrectFunds);
         initiate_<CoinType>(orders_reg, initiator, redeemer, redeemer_pubk, secret_hash, amount, timelock, coins, clock, ctx);
     }
 
@@ -153,14 +154,14 @@ module atomic_swapv1::AtomicSwap {
         clock: &Clock,
         ctx: &mut TxContext
     ) {
-        assert!(dynamic_field::exists_(&orders_reg.id, order_id), EORDER_NOT_INITIATED);
+        assert!(dynamic_field::exists_(&orders_reg.id, order_id), EOrderNotInitiated);
         
         let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
         
-        assert!(!order.is_fulfilled, EORDER_FULFILLED);
+        assert!(!order.is_fulfilled, EOrderFulfilled);
         assert!(
             order.initiated_at + order.timelock < clock::timestamp_ms(clock) as u256, 
-            EORDER_NOT_EXPIRED
+            EOrderNotExpired
         );
         
         order.is_fulfilled = true;
@@ -185,17 +186,17 @@ module atomic_swapv1::AtomicSwap {
         secret: vector<u8>,
         ctx: &mut TxContext
     ) {
-        assert!(dynamic_field::exists_(&orders_reg.id, order_id), EORDER_NOT_INITIATED);
+        assert!(dynamic_field::exists_(&orders_reg.id, order_id), EOrderNotInitiated);
         
         let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
         
-        assert!(!order.is_fulfilled, EORDER_FULFILLED);
+        assert!(!order.is_fulfilled, EOrderFulfilled);
         
         let redeemer = gen_addr(order.redeemer_pubk);
         let secret_hash = hash::sha2_256(secret);
-        let calc_order_id = create_order_id(secret_hash, order.initiator, order.timelock, redeemer);
+        let calc_order_id = create_order_id(secret_hash, order.initiator, redeemer, order.timelock);
 
-        assert!(calc_order_id == order_id, EINCORRECT_SECRET);
+        assert!(calc_order_id == order_id, EIncorrectSecret);
         
         order.is_fulfilled = true;
         
@@ -224,16 +225,16 @@ module atomic_swapv1::AtomicSwap {
         signature: vector<u8>, 
         ctx: &mut TxContext
     ) {
-        assert!(dynamic_field::exists_(&orders_reg.id, order_id), EORDER_NOT_INITIATED);
+        assert!(dynamic_field::exists_(&orders_reg.id, order_id), EOrderNotInitiated);
         
         let registry_id = object::uid_to_address(&orders_reg.id);
         let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
         
-        assert!(!order.is_fulfilled, EORDER_FULFILLED);
+        assert!(!order.is_fulfilled, EOrderFulfilled);
         
         let refund_digest = instant_refund_digest(order_id, registry_id);
         let verified = ed25519::ed25519_verify(&signature, &order.redeemer_pubk, &refund_digest);
-        assert!(verified, EINVALID_SIGNATURE);
+        assert!(verified, EInvalidSignature);
         
         order.is_fulfilled = true;
         
@@ -264,11 +265,11 @@ module atomic_swapv1::AtomicSwap {
     /// @param amount The amount of coins to swap
     /// @param timelock The time lock period for the swap
     fun safe_params(redeemer: address, initiator: address, amount: u256, timelock: u256){
-        assert!(redeemer != @0x0, EZERO_ADDRESS_REDEEMER);
-        assert!(initiator != redeemer, ESAME_INITIATOR_REDEEMER);
-        assert!(amount != 0, EZERO_AMOUNT);
-        assert!(timelock != 0, EZERO_TIMELOCK);
-        assert!(initiator != @0x0, EZERO_ADDRESS_INITIATOR);
+        assert!(redeemer != @0x0, EZeroAddressRedeemer);
+        assert!(initiator != redeemer, ESameInitiatorRedeemer);
+        assert!(amount != 0, EZeroAmount);
+        assert!(timelock != 0, EZeroTimelock);
+        assert!(initiator != @0x0, EZeroAddressInitiator);
     }
     /// Creates a unique order ID based on secret hash and initiator address
     /// @param secret_hash The hash of the secret
@@ -276,7 +277,7 @@ module atomic_swapv1::AtomicSwap {
     /// @param timelock The time lock period for the swap
     /// @param redeemer The address of the redeemer
     /// @return The unique order ID
-    fun create_order_id(secret_hash: vector<u8>, initiator: address, timelock: u256, redeemer: address): vector<u8> {
+    fun create_order_id(secret_hash: vector<u8>, initiator: address, redeemer: address, timelock: u256,): vector<u8> {
         // @note sui_chain_id needs to be changed for testnet
         // sui_chain_id (testnet) = x"0000000000000000000000000000000000000000000000000000000000000001"
         let sui_chain_id = x"0000000000000000000000000000000000000000000000000000000000000000";
@@ -286,8 +287,8 @@ module atomic_swapv1::AtomicSwap {
         vector::append(&mut data, sui_chain_id);
         vector::append(&mut data, secret_hash);
         vector::append(&mut data, address::to_bytes(initiator));
-        vector::append(&mut data, timelock_bytes);
         vector::append(&mut data, address::to_bytes(redeemer));
+        vector::append(&mut data, timelock_bytes);
         hash::sha2_256(data)
     }
 
@@ -310,7 +311,7 @@ module atomic_swapv1::AtomicSwap {
     /// @note Currently only supports Ed25519 public keys
     fun gen_addr(pubk: vector<u8>): address {
         // 0x00 = ED25519, 0x01 = Secp256k1, 0x02 = Secp256r1, 0x03 = multiSig
-        assert!(vector::length(&pubk) == 32, EINVALID_PUBKEY);
+        assert!(vector::length(&pubk) == 32, EInvalidPubkey);
         let flag: u8 = 0;
         let mut preimage = vector::empty<u8>();
         vector::push_back(&mut preimage, flag);
@@ -333,9 +334,9 @@ module atomic_swapv1::AtomicSwap {
         clock: &Clock,
         ctx: &mut TxContext
     ) {
-        let order_id = create_order_id(secret_hash, initiator, timelock, redeemer);
+        let order_id = create_order_id(secret_hash, initiator, redeemer, timelock);
         
-        assert!(!dynamic_field::exists_(&orders_reg.id, order_id), EDUPLICATE_ORDER);
+        assert!(!dynamic_field::exists_(&orders_reg.id, order_id), EDuplicateOrder);
         
         let order = Order {
             id: object::new(ctx),
@@ -365,8 +366,8 @@ module atomic_swapv1::AtomicSwap {
         dynamic_field::borrow(&orders_reg.id, order_id)
     }
     #[test_only]
-    public fun generate_order_id(secret_hash: vector<u8>, initiator: address, timelock: u256, redeemer: address): vector<u8> {
-        create_order_id(secret_hash, initiator, timelock, redeemer)
+    public fun generate_order_id(secret_hash: vector<u8>, initiator: address, redeemer: address, timelock: u256,): vector<u8> {
+        create_order_id(secret_hash, initiator, redeemer, timelock)
     }
     #[test_only]
     public fun get_refund_typehash(): vector<u8> {
