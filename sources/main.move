@@ -33,7 +33,8 @@ module atomic_swapv1::AtomicSwap {
 
     
     // ================ Type Hash Constants ================
-    const REFUND_TYPEHASH: vector<u8> = b"Refund(bytes32 orderId)";
+    // keccak256() value of b"Refund(bytes32 orderId, address registry)"
+    const REFUND_TYPEHASH: vector<u8> = x"bc059cfbece4b82f519bdf7f4dea736fd886109806029923b32b99b4a698985a";
 
     // ================ Data Structures ================
     /// Represents an atomic swap order
@@ -252,8 +253,7 @@ module atomic_swapv1::AtomicSwap {
     /// @param registry_id The ID of the orders registry
     /// @return The digest for refund verification
     public fun instant_refund_digest(order_id: vector<u8>, registry_id: address): vector<u8> {
-        let refund_typehash = REFUND_TYPEHASH;
-        encode(keccak256(&refund_typehash), order_id, address::to_bytes(registry_id))
+        encode(REFUND_TYPEHASH, order_id, address::to_bytes(registry_id))
     }
 
     // ================ Internal Functions ================

@@ -1142,12 +1142,12 @@ module atomic_swapv1::AtomicSwapTests {
             let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
             let reg_id = AtomicSwap::get_order_reg_id<SUI>(&registry);
             let registry_addr = object::uid_to_address(reg_id);
-            let refund_digest = AtomicSwap::instant_refund_digest(order_id, registry_addr);
-            std::debug::print(&refund_digest);
+            let _refund_digest = AtomicSwap::instant_refund_digest(order_id, registry_addr);
+            // std::debug::print(&refund_digest);
 
             // Generate using fastcrypto-cli
             let refund_signature =
-                x"b0ffee54d41232cd461d35c3b7b997964ea2d05cf75dd3d1a1a28b29ee97ad0ee86bb18670f0205586d5a5ba90eee41921ada35f9578d19fe6f4e1ad9b47f902";
+                x"9e8f581d93e52a288778c104fa22fabd8fa414a0206bbfcc685a8f8084d801e291e15ee0938d8ab88d91b45924a69065b4bfc49ef92cc3641706c714c420f208";
 
             AtomicSwap::instant_refund(
                 &mut registry,
