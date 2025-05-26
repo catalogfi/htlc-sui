@@ -30,7 +30,7 @@ module atomic_swapv1::AtomicSwap {
     const ESameInitiatorRedeemer: u64 = 11;
     const ESameFunderRedeemer: u64 = 12;
     const EInvalidPubkey: u64 = 13;
-
+    const EInvalidSecretHashLength: u64 = 14;
     
     // ================ Type Hash Constants ================
     // keccak256() value of b"Refund(bytes32 orderId, address registry)"
@@ -43,7 +43,7 @@ module atomic_swapv1::AtomicSwap {
         is_fulfilled: bool,
         initiator: address,
         redeemer_pubk: vector<u8>,
-        amount: u256,
+        amount: u64,
         initiated_at: u256,
         coins: Coin<CoinType>,
         timelock: u256,
@@ -59,7 +59,7 @@ module atomic_swapv1::AtomicSwap {
     public struct Initiated has copy, drop {
         order_id: vector<u8>,
         secret_hash: vector<u8>,
-        amount: u256
+        amount: u64
     }
 
     /// Emitted when a swap is redeemed
@@ -101,15 +101,15 @@ module atomic_swapv1::AtomicSwap {
         orders_reg: &mut OrdersRegistry<CoinType>,
         redeemer_pubk: vector<u8>,
         secret_hash: vector<u8>,
-        amount: u256, 
+        amount: u64, 
         timelock: u256,
         coins: Coin<CoinType>,
         clock: &Clock,
         ctx: &mut TxContext
     ) {
         let redeemer = gen_addr(redeemer_pubk);
-        safe_params(redeemer, tx_context::sender(ctx), amount, timelock);
-        assert!(coin::value<CoinType>(&coins) as u256 == amount, EIncorrectFunds);
+        safe_params(redeemer, tx_context::sender(ctx), amount, timelock, secret_hash);
+        assert!(coin::value<CoinType>(&coins) == amount, EIncorrectFunds);
         initiate_<CoinType>(orders_reg, tx_context::sender(ctx), redeemer, redeemer_pubk, secret_hash, amount, timelock, coins, clock, ctx);
     }
 
@@ -129,7 +129,7 @@ module atomic_swapv1::AtomicSwap {
         initiator: address,
         redeemer_pubk: vector<u8>,
         secret_hash: vector<u8>,
-        amount: u256, 
+        amount: u64, 
         timelock: u256,
         coins: Coin<CoinType>,
         clock: &Clock,
@@ -137,8 +137,8 @@ module atomic_swapv1::AtomicSwap {
     ){
         let redeemer = gen_addr(redeemer_pubk);
         assert!(tx_context::sender(ctx) != redeemer, ESameFunderRedeemer);
-        safe_params(redeemer, initiator, amount, timelock);
-        assert!(coin::value<CoinType>(&coins) as u256 == amount, EIncorrectFunds);
+        safe_params(redeemer, initiator, amount, timelock, secret_hash);
+        assert!(coin::value<CoinType>(&coins) == amount, EIncorrectFunds);
         initiate_<CoinType>(orders_reg, initiator, redeemer, redeemer_pubk, secret_hash, amount, timelock, coins, clock, ctx);
     }
 
@@ -169,7 +169,7 @@ module atomic_swapv1::AtomicSwap {
         event::emit(Refunded { order_id });
         
         transfer::public_transfer(
-            coin::split<CoinType>(&mut order.coins, order.amount as u64, ctx), 
+            coin::split<CoinType>(&mut order.coins, order.amount, ctx), 
             order.initiator
         );
     }
@@ -207,7 +207,7 @@ module atomic_swapv1::AtomicSwap {
         });
         
         transfer::public_transfer(
-            coin::split<CoinType>(&mut order.coins, order.amount as u64, ctx), 
+            coin::split<CoinType>(&mut order.coins, order.amount, ctx), 
             redeemer
         );
     }
@@ -231,17 +231,19 @@ module atomic_swapv1::AtomicSwap {
         let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
         
         assert!(!order.is_fulfilled, EOrderFulfilled);
-        
-        let refund_digest = instant_refund_digest(order_id, registry_id);
-        let verified = ed25519::ed25519_verify(&signature, &order.redeemer_pubk, &refund_digest);
-        assert!(verified, EInvalidSignature);
-        
+
+        if(tx_context::sender(ctx) != gen_addr(order.redeemer_pubk)){
+            let refund_digest = instant_refund_digest(order_id, registry_id);
+            let verified = ed25519::ed25519_verify(&signature, &order.redeemer_pubk, &refund_digest);
+            assert!(verified, EInvalidSignature);
+        };
+
         order.is_fulfilled = true;
         
         event::emit(Refunded { order_id });
         
         transfer::public_transfer(
-            coin::split<CoinType>(&mut order.coins, order.amount as u64, ctx), 
+            coin::split<CoinType>(&mut order.coins, order.amount, ctx), 
             order.initiator
         );
     }
@@ -259,15 +261,17 @@ module atomic_swapv1::AtomicSwap {
     // ================ Internal Functions ================
 
     /// Validates the parameters for initiating a swap
+    /// @dev making sure that the secret hash is the same length as a SHA256 hash
     /// @param redeemer The address of the redeemer
     /// @param initiator The address of the initiator
     /// @param amount The amount of coins to swap
     /// @param timelock The time lock period for the swap
-    fun safe_params(redeemer: address, initiator: address, amount: u256, timelock: u256){
+    fun safe_params(redeemer: address, initiator: address, amount: u64, timelock: u256, secret_hash: vector<u8>){
         assert!(initiator != redeemer, ESameInitiatorRedeemer);
         assert!(amount != 0, EZeroAmount);
         assert!(timelock != 0, EZeroTimelock);
-        assert!(initiator != @0x0, EZeroAddressInitiator);
+        assert!(initiator != address::from_bytes(x"0000000000000000000000000000000000000000000000000000000000000000"), EZeroAddressInitiator);
+        assert!(vector::length(&secret_hash) == 32, EInvalidSecretHashLength);
     }
     /// Creates a unique order ID based on secret hash and initiator address
     /// @param secret_hash The hash of the secret
@@ -326,7 +330,7 @@ module atomic_swapv1::AtomicSwap {
         redeemer: address,
         redeemer_pubk: vector<u8>,
         secret_hash: vector<u8>,
-        amount: u256, 
+        amount: u64, 
         timelock: u256,
         coins: Coin<CoinType>,
         clock: &Clock,
