@@ -183,22 +183,22 @@ This ensures uniqueness and prevents replay attacks across different parameters.
 
 ## Error Codes
 
-| Code | Error                     | Description                               |
-| ---- | ------------------------  | ----------------------------------------- |
-| 1    | `EIncorrectFunds`         | Coin value doesn't match specified amount |
-| 2    | `EOrderNotExpired`        | Timelock hasn't expired yet               |
-| 3    | `EZeroAddressInitiator`   | Initiator cannot be zero address          |
-| 4    | `EOrderFulfilled`         | Order already completed                   |
-| 5    | `EOrderNotInitiated`      | Order doesn't exist                       |
-| 6    | `EInvalidSignature`       | Signature verification failed             |
-| 7    | `EDuplicateOrder`         | Order ID already exists                   |
-| 8    | `EIncorrectSecret`        | Provided secret doesn't match hash        |
-| 9    | `EZeroTimelock`           | Timelock cannot be zero                   |
-| 10   | `EZeroAmount`             | Amount cannot be zero                     |
-| 11   | `ESameInitiatorRedeemer`  | Initiator and redeemer cannot be the same |
-| 12   | `ESameFunderRedeemer`     | Funder and redeemer cannot be the same    |
-| 13   | `EInvalidPubkey`          | Public key must be 32 bytes (Ed25519)     |
-| 14   | `EInvalidSecretHashLength`| SecretHash length must be 32 bytes        |
+| Code | Error                      | Description                               |
+| ---- | -------------------------- | ----------------------------------------- |
+| 1    | `EIncorrectFunds`          | Coin value doesn't match specified amount |
+| 2    | `EOrderNotExpired`         | Timelock hasn't expired yet               |
+| 3    | `EZeroAddressInitiator`    | Initiator cannot be zero address          |
+| 4    | `EOrderFulfilled`          | Order already completed                   |
+| 5    | `EOrderNotInitiated`       | Order doesn't exist                       |
+| 6    | `EInvalidSignature`        | Signature verification failed             |
+| 7    | `EDuplicateOrder`          | Order ID already exists                   |
+| 8    | `EIncorrectSecret`         | Provided secret doesn't match hash        |
+| 9    | `EZeroTimelock`            | Timelock cannot be zero                   |
+| 10   | `EZeroAmount`              | Amount cannot be zero                     |
+| 11   | `ESameInitiatorRedeemer`   | Initiator and redeemer cannot be the same |
+| 12   | `ESameFunderRedeemer`      | Funder and redeemer cannot be the same    |
+| 13   | `EInvalidPubkey`           | Public key must be 32 bytes (Ed25519)     |
+| 14   | `EInvalidSecretHashLength` | SecretHash length must be 32 bytes        |
 
 ## Usage Example
 
@@ -258,22 +258,6 @@ The contract includes test-only functions for comprehensive testing:
 2. **Shared Objects**: Registries are shared objects accessible to all users
 3. **Gas Optimization**: Functions are optimized for minimal gas usage
 4. **Event Indexing**: Events enable easy tracking of swap lifecycle
-
-## Security Audit Checklist
-
-- [ ] Parameter validation completeness
-- [ ] Reentrancy protection (Move's ownership model provides this)
-- [ ] Integer overflow protection (Move provides this)
-- [ ] Proper access controls
-- [ ] Event emission accuracy
-- [ ] Error handling completeness
-- [ ] Cryptographic implementations
-- [ ] Order ID uniqueness and determinism
-- [ ] Timelock logic correctness
-
-## License
-
-This contract is part of the Garden Finance protocol implementation for SUI blockchain.
 
 ## Contributing
 
