@@ -183,21 +183,22 @@ This ensures uniqueness and prevents replay attacks across different parameters.
 
 ## Error Codes
 
-| Code | Error                    | Description                               |
-| ---- | ------------------------ | ----------------------------------------- |
-| 1    | `EIncorrectFunds`        | Coin value doesn't match specified amount |
-| 2    | `EOrderNotExpired`       | Timelock hasn't expired yet               |
-| 3    | `EZeroAddressInitiator`  | Initiator cannot be zero address          |
-| 4    | `EOrderFulfilled`        | Order already completed                   |
-| 5    | `EOrderNotInitiated`     | Order doesn't exist                       |
-| 6    | `EInvalidSignature`      | Signature verification failed             |
-| 7    | `EDuplicateOrder`        | Order ID already exists                   |
-| 8    | `EIncorrectSecret`       | Provided secret doesn't match hash        |
-| 9    | `EZeroTimelock`          | Timelock cannot be zero                   |
-| 10   | `EZeroAmount`            | Amount cannot be zero                     |
-| 11   | `ESameInitiatorRedeemer` | Initiator and redeemer cannot be the same |
-| 12   | `ESameFunderRedeemer`    | Funder and redeemer cannot be the same    |
-| 13   | `EInvalidPubkey`         | Public key must be 32 bytes (Ed25519)     |
+| Code | Error                     | Description                               |
+| ---- | ------------------------  | ----------------------------------------- |
+| 1    | `EIncorrectFunds`         | Coin value doesn't match specified amount |
+| 2    | `EOrderNotExpired`        | Timelock hasn't expired yet               |
+| 3    | `EZeroAddressInitiator`   | Initiator cannot be zero address          |
+| 4    | `EOrderFulfilled`         | Order already completed                   |
+| 5    | `EOrderNotInitiated`      | Order doesn't exist                       |
+| 6    | `EInvalidSignature`       | Signature verification failed             |
+| 7    | `EDuplicateOrder`         | Order ID already exists                   |
+| 8    | `EIncorrectSecret`        | Provided secret doesn't match hash        |
+| 9    | `EZeroTimelock`           | Timelock cannot be zero                   |
+| 10   | `EZeroAmount`             | Amount cannot be zero                     |
+| 11   | `ESameInitiatorRedeemer`  | Initiator and redeemer cannot be the same |
+| 12   | `ESameFunderRedeemer`     | Funder and redeemer cannot be the same    |
+| 13   | `EInvalidPubkey`          | Public key must be 32 bytes (Ed25519)     |
+| 14   | `EInvalidSecretHashLength`| SecretHash length must be 32 bytes        |
 
 ## Usage Example
 
