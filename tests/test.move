@@ -112,6 +112,7 @@ fun initialize_test_swap(
         initiator_address,
         generate_address(redeemer_pubk),
         timelock,
+        amount
     )
 }
 
@@ -1109,6 +1110,7 @@ fun test_init_on_behalf() {
             initiator,
             redeemer_address,
             TIMELOCK,
+            SWAP_AMOUNT
         );
         AtomicSwap::redeem_swap(
             &mut registry,
@@ -1219,7 +1221,7 @@ fun test_instant_refund() {
 
         // Generated using fastcrypto-cli
         let refund_signature =
-            x"9e8f581d93e52a288778c104fa22fabd8fa414a0206bbfcc685a8f8084d801e291e15ee0938d8ab88d91b45924a69065b4bfc49ef92cc3641706c714c420f208";
+            x"0ccce0d58570ad53b96dbdcb5d0b0043820f9818e0b5e25032019ada92d928ac15d3ccc18043e7387940a7dd03baed3420b5bb0b07da599c135629f543d72e04";
 
         AtomicSwap::instant_refund(
             &mut registry,
