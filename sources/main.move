@@ -216,7 +216,7 @@ public fun redeem_swap<CoinType>(
 
     let redeemer = gen_addr(order.redeemer_pubk);
     let secret_hash = hash::sha2_256(secret);
-    let calc_order_id = create_order_id(secret_hash, order.initiator, redeemer, order.timelock);
+    let calc_order_id = create_order_id(secret_hash, order.initiator, redeemer, order.timelock, order.amount);
 
     assert!(calc_order_id == order_id, EIncorrectSecret);
 
@@ -316,18 +316,20 @@ fun create_order_id(
     initiator: address,
     redeemer: address,
     timelock: u256,
+    amount: u64
 ): vector<u8> {
     // @note sui_chain_id needs to be changed for testnet
     // sui_chain_id (testnet) = x"0000000000000000000000000000000000000000000000000000000000000001"
     let sui_chain_id = x"0000000000000000000000000000000000000000000000000000000000000000";
     let timelock_bytes = bcs::to_bytes(&timelock);
-
+    let amount = bcs::to_bytes(&amount);
     let mut data = vector::empty<u8>();
     vector::append(&mut data, sui_chain_id);
     vector::append(&mut data, secret_hash);
     vector::append(&mut data, address::to_bytes(initiator));
     vector::append(&mut data, address::to_bytes(redeemer));
     vector::append(&mut data, timelock_bytes);
+    vector::append(&mut data, amount);
     hash::sha2_256(data)
 }
 
@@ -373,7 +375,7 @@ fun initiate_<CoinType>(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let order_id = create_order_id(secret_hash, initiator, redeemer, timelock);
+    let order_id = create_order_id(secret_hash, initiator, redeemer, timelock, amount);
 
     assert!(!dynamic_field::exists_(&orders_reg.id, order_id), EDuplicateOrder);
 
@@ -412,8 +414,9 @@ public fun generate_order_id(
     initiator: address,
     redeemer: address,
     timelock: u256,
+    amount: u64
 ): vector<u8> {
-    create_order_id(secret_hash, initiator, redeemer, timelock)
+    create_order_id(secret_hash, initiator, redeemer, timelock, amount)
 }
 #[test_only]
 public fun get_refund_typehash(): vector<u8> {
