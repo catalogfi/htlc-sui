@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "@mysten/sui": "^1.26.1",
-    "keccak256": "^1.0.6"
-  }
-}

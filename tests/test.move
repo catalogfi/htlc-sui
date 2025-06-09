@@ -112,7 +112,7 @@ fun initialize_test_swap(
         initiator_address,
         generate_address(redeemer_pubk),
         timelock,
-        amount
+        amount,
     )
 }
 
@@ -651,7 +651,7 @@ fun test_revert_refund_already_fulfilled() {
 
 // Test zero timelock
 #[test]
-#[expected_failure(abort_code = AtomicSwap::EZeroTimelock)]
+#[expected_failure(abort_code = AtomicSwap::EInvalidTimelock)]
 fun test_revert_init_zero_timelock() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
@@ -692,7 +692,7 @@ fun test_revert_init_zero_timelock() {
 }
 
 #[test]
-#[expected_failure(abort_code = AtomicSwap::EZeroTimelock)]
+#[expected_failure(abort_code = AtomicSwap::EInvalidTimelock)]
 fun test_revert_init_on_behalf_zero_timelock() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
@@ -721,6 +721,90 @@ fun test_revert_init_on_behalf_zero_timelock() {
             secret_hash,
             SWAP_AMOUNT,
             0, // Zero timelock
+            init_coins,
+            &clock,
+            ts::ctx(&mut scenario),
+        );
+
+        ts::return_shared(registry);
+    };
+
+    clock::destroy_for_testing(clock);
+    ts::end(scenario);
+}
+
+// Test >= 7 day timelock
+#[test]
+#[expected_failure(abort_code = AtomicSwap::EInvalidTimelock)]
+fun test_revert_init_big_timelock() {
+    let mut scenario = setup();
+    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
+
+    let (_, secret_hash) = generate_secret();
+    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+
+    // Mint coins to the initiator
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
+        transfer::public_transfer(mint_coins, initiator_address);
+    };
+
+    // Try to create a swap with zero timelock (should fail)
+    ts::next_tx(&mut scenario, initiator_address);
+    {
+        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+        let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
+
+        // This should fail due to zero timelock
+        AtomicSwap::initiate(
+            &mut registry,
+            redeemer_pk,
+            secret_hash,
+            SWAP_AMOUNT,
+            604800001, // >7 days timelock
+            init_coins,
+            &clock,
+            ts::ctx(&mut scenario),
+        );
+
+        ts::return_shared(registry);
+    };
+
+    clock::destroy_for_testing(clock);
+    ts::end(scenario);
+}
+
+#[test]
+#[expected_failure(abort_code = AtomicSwap::EInvalidTimelock)]
+fun test_revert_init_on_behalf_big_timelock() {
+    let mut scenario = setup();
+    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
+
+    let (_, secret_hash) = generate_secret();
+    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+
+    // Mint coins to the initiator
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
+        transfer::public_transfer(mint_coins, ADMIN);
+    };
+
+    // Try to create a swap with zero timelock (should fail)
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+        let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
+
+        // This should fail due to zero timelock
+        AtomicSwap::initiate_on_behalf(
+            &mut registry,
+            initiator_address,
+            redeemer_pk,
+            secret_hash,
+            SWAP_AMOUNT,
+            604800001, // >7 days timelock
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -1110,7 +1194,7 @@ fun test_init_on_behalf() {
             initiator,
             redeemer_address,
             TIMELOCK,
-            SWAP_AMOUNT
+            SWAP_AMOUNT,
         );
         AtomicSwap::redeem_swap(
             &mut registry,
