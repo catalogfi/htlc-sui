@@ -24,7 +24,7 @@ const EOrderNotInitiated: u64 = 5;
 const EInvalidSignature: u64 = 6;
 const EDuplicateOrder: u64 = 7;
 const EIncorrectSecret: u64 = 8;
-const EZeroTimelock: u64 = 9;
+const EInvalidTimelock: u64 = 9;
 const EZeroAmount: u64 = 10;
 const ESameInitiatorRedeemer: u64 = 11;
 const ESameFunderRedeemer: u64 = 12;
@@ -93,7 +93,7 @@ public fun create_orders_registry<CoinType>(ctx: &mut TxContext): ID {
 /// @param redeemer_pubk The public key of the redeemer
 /// @param secret_hash The hash of the secret
 /// @param amount The amount of coins to swap
-/// @param timelock The time lock period for the swap
+/// @param timelock The time lock period for the swap (in ms)
 /// @param coins The coins to be swapped
 /// @param clock The clock to get the current time
 /// @param ctx The transaction context
@@ -131,7 +131,7 @@ public fun initiate<CoinType>(
 /// @param redeemer_pubk The public key of the redeemer
 /// @param secret_hash The hash of the secret
 /// @param amount The amount of coins to swap
-/// @param timelock The time lock period for the swap
+/// @param timelock The time lock period for the swap (in ms)
 /// @param coins The coins to be swapped
 /// @param clock The clock to get the current time
 /// @param ctx The transaction context
@@ -216,7 +216,13 @@ public fun redeem_swap<CoinType>(
 
     let redeemer = gen_addr(order.redeemer_pubk);
     let secret_hash = hash::sha2_256(secret);
-    let calc_order_id = create_order_id(secret_hash, order.initiator, redeemer, order.timelock, order.amount);
+    let calc_order_id = create_order_id(
+        secret_hash,
+        order.initiator,
+        redeemer,
+        order.timelock,
+        order.amount,
+    );
 
     assert!(calc_order_id == order_id, EIncorrectSecret);
 
@@ -287,7 +293,7 @@ public fun instant_refund_digest(order_id: vector<u8>, registry_id: address): ve
 /// @param redeemer The address of the redeemer
 /// @param initiator The address of the initiator
 /// @param amount The amount of coins to swap
-/// @param timelock The time lock period for the swap
+/// @param timelock The time lock period for the swap (in ms)
 fun safe_params(
     redeemer: address,
     initiator: address,
@@ -297,7 +303,8 @@ fun safe_params(
 ) {
     assert!(initiator != redeemer, ESameInitiatorRedeemer);
     assert!(amount != 0, EZeroAmount);
-    assert!(timelock != 0, EZeroTimelock);
+    //timelock > 0ms and <= 7 days
+    assert!(timelock > 0 && timelock < 604800001, EInvalidTimelock);
     assert!(
         initiator != address::from_bytes(x"0000000000000000000000000000000000000000000000000000000000000000"),
         EZeroAddressInitiator,
@@ -308,7 +315,7 @@ fun safe_params(
 /// Creates a unique order ID based on secret hash and initiator address
 /// @param secret_hash The hash of the secret
 /// @param initiator The address of the initiator
-/// @param timelock The time lock period for the swap
+/// @param timelock The time lock period for the swap (in ms)
 /// @param redeemer The address of the redeemer
 /// @return The unique order ID
 fun create_order_id(
@@ -316,7 +323,7 @@ fun create_order_id(
     initiator: address,
     redeemer: address,
     timelock: u256,
-    amount: u64
+    amount: u64,
 ): vector<u8> {
     // @note sui_chain_id needs to be changed for testnet
     // sui_chain_id (testnet) = x"0000000000000000000000000000000000000000000000000000000000000001"
@@ -414,7 +421,7 @@ public fun generate_order_id(
     initiator: address,
     redeemer: address,
     timelock: u256,
-    amount: u64
+    amount: u64,
 ): vector<u8> {
     create_order_id(secret_hash, initiator, redeemer, timelock, amount)
 }
