@@ -74,6 +74,7 @@ public struct Refunded has copy, drop {
     order_id: vector<u8>,
 }
 
+
 // ================ Public Functions ================
 /// Creates a new registry for atomic swaps of a specific coin type
 /// @param ctx The transaction context
@@ -210,6 +211,7 @@ public fun redeem_swap<CoinType>(
 ) {
     assert!(dynamic_field::exists_(&orders_reg.id, order_id), EOrderNotInitiated);
 
+    let registry_addr = object::uid_to_address(&orders_reg.id);
     let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
 
     assert!(!order.is_fulfilled, EOrderFulfilled);
@@ -222,6 +224,8 @@ public fun redeem_swap<CoinType>(
         redeemer,
         order.timelock,
         order.amount,
+        registry_addr
+
     );
 
     assert!(calc_order_id == order_id, EIncorrectSecret);
@@ -324,6 +328,7 @@ fun create_order_id(
     redeemer: address,
     timelock: u256,
     amount: u64,
+    reg_id: address
 ): vector<u8> {
     // @note sui_chain_id needs to be changed for testnet
     // sui_chain_id (testnet) = x"0000000000000000000000000000000000000000000000000000000000000001"
@@ -337,6 +342,7 @@ fun create_order_id(
     vector::append(&mut data, address::to_bytes(redeemer));
     vector::append(&mut data, timelock_bytes);
     vector::append(&mut data, amount);
+    vector::append(&mut data, address::to_bytes(reg_id));
     hash::sha2_256(data)
 }
 
@@ -382,7 +388,8 @@ fun initiate_<CoinType>(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let order_id = create_order_id(secret_hash, initiator, redeemer, timelock, amount);
+    let reg_id = object::uid_to_address(&orders_reg.id);
+    let order_id = create_order_id(secret_hash, initiator, redeemer, timelock, amount, reg_id);
 
     assert!(!dynamic_field::exists_(&orders_reg.id, order_id), EDuplicateOrder);
 
@@ -416,14 +423,17 @@ public fun get_order<CoinType>(
     dynamic_field::borrow(&orders_reg.id, order_id)
 }
 #[test_only]
-public fun generate_order_id(
+public fun generate_order_id<ID: key>(
     secret_hash: vector<u8>,
     initiator: address,
     redeemer: address,
     timelock: u256,
     amount: u64,
+    registry: &ID
 ): vector<u8> {
-    create_order_id(secret_hash, initiator, redeemer, timelock, amount)
+    let id = object::id_address(registry);
+    let order_id = create_order_id(secret_hash, initiator, redeemer, timelock, amount, id);
+    order_id
 }
 #[test_only]
 public fun get_refund_typehash(): vector<u8> {

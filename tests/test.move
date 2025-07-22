@@ -10,6 +10,7 @@ use sui::coin::{Self, Coin, TreasuryCap};
 use sui::hash::blake2b256;
 use sui::sui::{Self, SUI};
 use sui::test_scenario::{Self as ts, Scenario};
+use sui::object::uid_to_inner;
 
 // Test addresses
 const ADMIN: address = @0xAD;
@@ -79,6 +80,7 @@ fun initialize_test_swap(
     timelock: u256,
 ): vector<u8> {
     let (_, secret_hash) = generate_secret();
+    let order_id;
     // Mint coins to the initiator
     ts::next_tx(scenario, ADMIN);
     {
@@ -103,17 +105,19 @@ fun initialize_test_swap(
             ts::ctx(scenario),
         );
 
-        ts::return_shared(registry);
-    };
-
-    // Return order ID for further operations
-    AtomicSwap::generate_order_id(
+    order_id = AtomicSwap::generate_order_id(
         secret_hash,
         initiator_address,
         generate_address(redeemer_pubk),
         timelock,
         amount,
-    )
+        &registry
+    );
+        ts::return_shared(registry);
+    };
+
+    // Return order ID for further operations
+    order_id
 }
 
 // Test registry creation
@@ -1195,6 +1199,7 @@ fun test_init_on_behalf() {
             redeemer_address,
             TIMELOCK,
             SWAP_AMOUNT,
+            &registry
         );
         AtomicSwap::redeem_swap(
             &mut registry,
@@ -1305,7 +1310,7 @@ fun test_instant_refund() {
 
         // Generated using fastcrypto-cli
         let refund_signature =
-            x"0ccce0d58570ad53b96dbdcb5d0b0043820f9818e0b5e25032019ada92d928ac15d3ccc18043e7387940a7dd03baed3420b5bb0b07da599c135629f543d72e04";
+            x"3b887355dab78f0e0651994e9e5c537604b50c4a5780315ecbfe7b5853e785e98e7ff3d7b638b8a9a65466e92c1b5ff4bd00df86b04c6f4aacc37a027c144609";
 
         AtomicSwap::instant_refund(
             &mut registry,
