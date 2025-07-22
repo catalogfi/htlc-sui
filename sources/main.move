@@ -74,6 +74,9 @@ public struct Refunded has copy, drop {
     order_id: vector<u8>,
 }
 
+public struct RegistryCreated has copy, drop {
+    registry_id: ID
+}
 
 // ================ Public Functions ================
 /// Creates a new registry for atomic swaps of a specific coin type
@@ -85,6 +88,7 @@ public fun create_orders_registry<CoinType>(ctx: &mut TxContext): ID {
     };
     let orders_reg_id = object::uid_to_inner(&orders_reg.id);
     transfer::share_object(orders_reg);
+    event::emit(RegistryCreated {registry_id: orders_reg_id});
     orders_reg_id
 }
 
