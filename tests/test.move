@@ -19,7 +19,7 @@ const REDEEMER: address = @0xA2;
 // Test constants
 const SWAP_AMOUNT: u64 = 1000;
 const TIMELOCK: u256 = 3600000; // 1 hour in milliseconds
-
+// const DESTINATION_DATA: vector<u8> = [];
 // Setup function that creates a test environment
 fun setup(): Scenario {
     let mut scenario = ts::begin(ADMIN);
@@ -100,6 +100,7 @@ fun initialize_test_swap(
             secret_hash,
             amount,
             timelock,
+            vector::empty<u8>(),
             init_coins,
             clock,
             ts::ctx(scenario),
@@ -163,6 +164,7 @@ fun test_init_swap() {
             secret_hash,
             SWAP_AMOUNT,
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -387,6 +389,7 @@ fun test_revert_init_duplicate_order() {
             secret_hash,
             SWAP_AMOUNT,
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -439,6 +442,7 @@ fun test_revert_init_on_behalf_duplicate_order() {
             secret_hash,
             SWAP_AMOUNT,
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -537,6 +541,7 @@ fun test_revert_init_same_initiator_redeemer() {
             secret_hash,
             SWAP_AMOUNT,
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -579,6 +584,7 @@ fun test_revert_init_on_behalf_same_initiator_redeemer() {
             secret_hash,
             SWAP_AMOUNT,
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -683,6 +689,7 @@ fun test_revert_init_zero_timelock() {
             secret_hash,
             SWAP_AMOUNT,
             0, // Zero timelock
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -725,6 +732,7 @@ fun test_revert_init_on_behalf_zero_timelock() {
             secret_hash,
             SWAP_AMOUNT,
             0, // Zero timelock
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -767,6 +775,7 @@ fun test_revert_init_big_timelock() {
             secret_hash,
             SWAP_AMOUNT,
             604800001, // >7 days timelock
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -809,6 +818,7 @@ fun test_revert_init_on_behalf_big_timelock() {
             secret_hash,
             SWAP_AMOUNT,
             604800001, // >7 days timelock
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -851,6 +861,7 @@ fun test_revert_init_on_behalf_invalid_secret_hash_length() {
             x"1234",
             SWAP_AMOUNT,
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -892,6 +903,7 @@ fun test_revert_init_invalid_secret_hash_length() {
             x"1234",
             SWAP_AMOUNT,
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -934,6 +946,7 @@ fun test_revert_init_swap_zero_amount() {
             secret_hash,
             0, // Zero amount
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -976,6 +989,7 @@ fun test_revert_init_on_behalf_zero_amount() {
             secret_hash,
             0, // Zero amount
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -1019,6 +1033,7 @@ fun test_revert_init_on_behalf_zero_initiator() {
             secret_hash,
             SWAP_AMOUNT,
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -1060,6 +1075,7 @@ fun test_revert_init_swap_insufficient_balance() {
             secret_hash,
             SWAP_AMOUNT, // Amount greater than available coins
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -1102,6 +1118,7 @@ fun test_revert_init_on_behalf_insufficient_balance() {
             secret_hash,
             SWAP_AMOUNT, // Amount greater than available coins
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -1143,6 +1160,7 @@ fun test_revert_init_on_behalf_same_funder_redeemer() {
             secret_hash,
             SWAP_AMOUNT, // Amount greater than available coins
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),
@@ -1182,6 +1200,7 @@ fun test_init_on_behalf() {
             secret_hash,
             SWAP_AMOUNT,
             TIMELOCK,
+            vector::empty<u8>(),
             init_coins,
             &clock,
             ts::ctx(&mut scenario),

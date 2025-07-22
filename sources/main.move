@@ -60,6 +60,7 @@ public struct Initiated has copy, drop {
     order_id: vector<u8>,
     secret_hash: vector<u8>,
     amount: u64,
+    destination_data: vector<u8>
 }
 
 /// Emitted when a swap is redeemed
@@ -108,6 +109,7 @@ public fun initiate<CoinType>(
     secret_hash: vector<u8>,
     amount: u64,
     timelock: u256,
+    destination_data: vector<u8>,
     coins: Coin<CoinType>,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -123,6 +125,7 @@ public fun initiate<CoinType>(
         secret_hash,
         amount,
         timelock,
+        destination_data,
         coins,
         clock,
         ctx,
@@ -147,6 +150,7 @@ public fun initiate_on_behalf<CoinType>(
     secret_hash: vector<u8>,
     amount: u64,
     timelock: u256,
+    destination_data: vector<u8>,
     coins: Coin<CoinType>,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -163,6 +167,7 @@ public fun initiate_on_behalf<CoinType>(
         secret_hash,
         amount,
         timelock,
+        destination_data,
         coins,
         clock,
         ctx,
@@ -388,6 +393,7 @@ fun initiate_<CoinType>(
     secret_hash: vector<u8>,
     amount: u64,
     timelock: u256,
+    destination_data: vector<u8>,
     coins: Coin<CoinType>,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -414,6 +420,7 @@ fun initiate_<CoinType>(
         order_id,
         secret_hash,
         amount,
+        destination_data,
     });
 }
 
