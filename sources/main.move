@@ -30,6 +30,7 @@ const ESameInitiatorRedeemer: u64 = 11;
 const ESameFunderRedeemer: u64 = 12;
 const EInvalidPubkey: u64 = 13;
 const EInvalidSecretHashLength: u64 = 14;
+const EZeroAddressRedeemer: u64 = 15;
 
 // ================ Type Hash Constants ================
 // keccak256() value of b"Refund(bytes32 orderId, address registry)"
@@ -41,7 +42,7 @@ const REFUND_TYPEHASH: vector<u8> =
 public struct Order<phantom CoinType> has key, store {
     id: UID,
     is_fulfilled: bool,
-    initiator: address,
+    initiator_pubk: vector<u8>,
     redeemer_pubk: vector<u8>,
     amount: u64,
     initiated_at: u256,
@@ -103,34 +104,35 @@ public fun create_orders_registry<CoinType>(ctx: &mut TxContext): ID {
 /// @param coins The coins to be swapped
 /// @param clock The clock to get the current time
 /// @param ctx The transaction context
-public fun initiate<CoinType>(
-    orders_reg: &mut OrdersRegistry<CoinType>,
-    redeemer_pubk: vector<u8>,
-    secret_hash: vector<u8>,
-    amount: u64,
-    timelock: u256,
-    destination_data: vector<u8>,
-    coins: Coin<CoinType>,
-    clock: &Clock,
-    ctx: &mut TxContext,
-) {
-    let redeemer = gen_addr(redeemer_pubk);
-    safe_params(redeemer, tx_context::sender(ctx), amount, timelock, secret_hash);
-    assert!(coin::value<CoinType>(&coins) == amount, EIncorrectFunds);
-    initiate_<CoinType>(
-        orders_reg,
-        tx_context::sender(ctx),
-        redeemer,
-        redeemer_pubk,
-        secret_hash,
-        amount,
-        timelock,
-        destination_data,
-        coins,
-        clock,
-        ctx,
-    );
-}
+// public fun initiate<CoinType>(
+//     orders_reg: &mut OrdersRegistry<CoinType>,
+//     initiator_pubk: vector<u8>,
+//     redeemer_pubk: vector<u8>,
+//     secret_hash: vector<u8>,
+//     amount: u64,
+//     timelock: u256,
+//     destination_data: vector<u8>,
+//     coins: Coin<CoinType>,
+//     clock: &Clock,
+//     ctx: &mut TxContext,
+// ) {
+//     let redeemer = gen_addr(redeemer_pubk);
+//     safe_params(redeemer, tx_context::sender(ctx), amount, timelock, secret_hash);
+//     assert!(coin::value<CoinType>(&coins) == amount, EIncorrectFunds);
+//     initiate_<CoinType>(
+//         orders_reg,
+//         tx_context::sender(ctx),
+//         redeemer,
+//         redeemer_pubk,
+//         secret_hash,
+//         amount,
+//         timelock,
+//         destination_data,
+//         coins,
+//         clock,
+//         ctx,
+//     );
+// }
 
 /// Initiates a new atomic swap on behalf of the initiator
 /// @notice same logic as initiate but allows a different initiator
@@ -143,9 +145,9 @@ public fun initiate<CoinType>(
 /// @param coins The coins to be swapped
 /// @param clock The clock to get the current time
 /// @param ctx The transaction context
-public fun initiate_on_behalf<CoinType>(
+public fun initiate_swap<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
-    initiator: address,
+    initiator_pubk: vector<u8>,
     redeemer_pubk: vector<u8>,
     secret_hash: vector<u8>,
     amount: u64,
@@ -156,13 +158,13 @@ public fun initiate_on_behalf<CoinType>(
     ctx: &mut TxContext,
 ) {
     let redeemer = gen_addr(redeemer_pubk);
+    let initiator= gen_addr(initiator_pubk);
     assert!(tx_context::sender(ctx) != redeemer, ESameFunderRedeemer);
     safe_params(redeemer, initiator, amount, timelock, secret_hash);
     assert!(coin::value<CoinType>(&coins) == amount, EIncorrectFunds);
     initiate_<CoinType>(
         orders_reg,
-        initiator,
-        redeemer,
+        initiator_pubk,
         redeemer_pubk,
         secret_hash,
         amount,
@@ -202,7 +204,7 @@ public fun refund_swap<CoinType>(
 
     transfer::public_transfer(
         coin::split<CoinType>(&mut order.coins, order.amount, ctx),
-        order.initiator,
+        gen_addr(order.initiator_pubk),
     );
 }
 
@@ -229,12 +231,11 @@ public fun redeem_swap<CoinType>(
     let secret_hash = hash::sha2_256(secret);
     let calc_order_id = create_order_id(
         secret_hash,
-        order.initiator,
-        redeemer,
+        order.initiator_pubk,
+        order.redeemer_pubk,
         order.timelock,
         order.amount,
         registry_addr
-
     );
 
     assert!(calc_order_id == order_id, EIncorrectSecret);
@@ -285,7 +286,7 @@ public fun instant_refund<CoinType>(
 
     transfer::public_transfer(
         coin::split<CoinType>(&mut order.coins, order.amount, ctx),
-        order.initiator,
+        gen_addr(order.initiator_pubk),
     );
 }
 
@@ -322,6 +323,10 @@ fun safe_params(
         initiator != address::from_bytes(x"0000000000000000000000000000000000000000000000000000000000000000"),
         EZeroAddressInitiator,
     );
+    assert!(
+        redeemer != address::from_bytes(x"0000000000000000000000000000000000000000000000000000000000000000"),
+        EZeroAddressRedeemer,
+    );
     assert!(vector::length(&secret_hash) == 32, EInvalidSecretHashLength);
 }
 
@@ -333,8 +338,8 @@ fun safe_params(
 /// @return The unique order ID
 fun create_order_id(
     secret_hash: vector<u8>,
-    initiator: address,
-    redeemer: address,
+    initiator_pubk: vector<u8>,
+    redeemer_pubk: vector<u8>,
     timelock: u256,
     amount: u64,
     reg_id: address
@@ -347,8 +352,8 @@ fun create_order_id(
     let mut data = vector::empty<u8>();
     vector::append(&mut data, sui_chain_id);
     vector::append(&mut data, secret_hash);
-    vector::append(&mut data, address::to_bytes(initiator));
-    vector::append(&mut data, address::to_bytes(redeemer));
+    vector::append(&mut data, initiator_pubk);
+    vector::append(&mut data, redeemer_pubk);
     vector::append(&mut data, timelock_bytes);
     vector::append(&mut data, amount);
     vector::append(&mut data, address::to_bytes(reg_id));
@@ -387,8 +392,7 @@ fun gen_addr(pubk: vector<u8>): address {
 /// @notice params are passed from initiate or initiate_on_behalf
 fun initiate_<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
-    initiator: address,
-    redeemer: address,
+    initiator_pubk: vector<u8>,
     redeemer_pubk: vector<u8>,
     secret_hash: vector<u8>,
     amount: u64,
@@ -399,14 +403,14 @@ fun initiate_<CoinType>(
     ctx: &mut TxContext,
 ) {
     let reg_id = object::uid_to_address(&orders_reg.id);
-    let order_id = create_order_id(secret_hash, initiator, redeemer, timelock, amount, reg_id);
+    let order_id = create_order_id(secret_hash, initiator_pubk, redeemer_pubk, timelock, amount, reg_id);
 
     assert!(!dynamic_field::exists_(&orders_reg.id, order_id), EDuplicateOrder);
 
     let order = Order {
         id: object::new(ctx),
-        initiator,
         is_fulfilled: false,
+        initiator_pubk,
         redeemer_pubk,
         amount,
         initiated_at: clock::timestamp_ms(clock) as u256,
@@ -436,8 +440,8 @@ public fun get_order<CoinType>(
 #[test_only]
 public fun generate_order_id<ID: key>(
     secret_hash: vector<u8>,
-    initiator: address,
-    redeemer: address,
+    initiator: vector<u8>,
+    redeemer: vector<u8>,
     timelock: u256,
     amount: u64,
     registry: &ID
