@@ -4,3 +4,5 @@ node_modules
 package-lock.json
 Move.lock
 traces/
+.trace
+.coverage_map.mvcov

@@ -74,7 +74,7 @@ fun generate_address(pubk: vector<u8>): address {
 fun initialize_test_swap(
     scenario: &mut Scenario,
     clock: &Clock,
-    initiator_address: address,
+    initiator_pubk: vector<u8>,
     redeemer_pubk: vector<u8>,
     amount: u64,
     timelock: u256,
@@ -85,17 +85,18 @@ fun initialize_test_swap(
     ts::next_tx(scenario, ADMIN);
     {
         let mint_coins = mint_coins(amount, ts::ctx(scenario));
-        transfer::public_transfer(mint_coins, initiator_address);
+        transfer::public_transfer(mint_coins, generate_address(initiator_pubk));
     };
 
     // Initialize swap
-    ts::next_tx(scenario, initiator_address);
+    ts::next_tx(scenario, generate_address(initiator_pubk));
     {
         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(scenario);
         let init_coins = ts::take_from_sender<Coin<SUI>>(scenario);
 
-        AtomicSwap::initiate(
+        AtomicSwap::initiate_swap(
             &mut registry,
+            initiator_pubk,
             redeemer_pubk,
             secret_hash,
             amount,
@@ -108,8 +109,8 @@ fun initialize_test_swap(
 
     order_id = AtomicSwap::generate_order_id(
         secret_hash,
-        initiator_address,
-        generate_address(redeemer_pubk),
+        initiator_pubk,
+        redeemer_pubk,
         timelock,
         amount,
         &registry
@@ -143,7 +144,7 @@ fun test_init_swap() {
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
     let (_, secret_hash) = generate_secret();
-    let (__initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
     // Mint coins to the initiator
     ts::next_tx(&mut scenario, ADMIN);
@@ -158,8 +159,9 @@ fun test_init_swap() {
         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
 
-        AtomicSwap::initiate(
+        AtomicSwap::initiate_swap(
             &mut registry,
+            initiator_pk,
             redeemer_pk,
             secret_hash,
             SWAP_AMOUNT,
@@ -183,12 +185,12 @@ fun test_redeem_swap() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
-    let (_initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
 
     let order_id = initialize_test_swap(
         &mut scenario,
         &clock,
-        initiator_address,
+        initiator_pk,
         redeemer_pk,
         SWAP_AMOUNT,
         TIMELOCK,
@@ -226,12 +228,12 @@ fun test_redeem_swap() {
 fun test_refund_swap() {
     let mut scenario = setup();
     let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
     let order_id = initialize_test_swap(
         &mut scenario,
         &clock,
-        initiator_address,
+        initiator_pk,
         redeemer_pk,
         SWAP_AMOUNT,
         TIMELOCK,
@@ -278,12 +280,12 @@ fun test_revert_redeem_with_incorrect_secret() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
-    let (_initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
 
     let order_id = initialize_test_swap(
         &mut scenario,
         &clock,
-        initiator_address,
+        initiator_pk,
         redeemer_pk,
         SWAP_AMOUNT,
         TIMELOCK,
@@ -319,12 +321,12 @@ fun test_revert_refund_before_timelock() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
     let order_id = initialize_test_swap(
         &mut scenario,
         &clock,
-        initiator_address,
+        initiator_pk,
         redeemer_pk,
         SWAP_AMOUNT,
         TIMELOCK,
@@ -356,12 +358,12 @@ fun test_revert_init_duplicate_order() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
     let _order_id = initialize_test_swap(
         &mut scenario,
         &clock,
-        initiator_address,
+        initiator_pk,
         redeemer_pk,
         SWAP_AMOUNT,
         TIMELOCK,
@@ -383,61 +385,9 @@ fun test_revert_init_duplicate_order() {
         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
 
         // This should fail due to duplicate order_id
-        AtomicSwap::initiate(
+        AtomicSwap::initiate_swap(
             &mut registry,
-            redeemer_pk,
-            secret_hash,
-            SWAP_AMOUNT,
-            TIMELOCK,
-            vector::empty<u8>(),
-            init_coins,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-#[test]
-#[expected_failure(abort_code = AtomicSwap::EDuplicateOrder)]
-fun test_revert_init_on_behalf_duplicate_order() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
-
-    let _order_id = initialize_test_swap(
-        &mut scenario,
-        &clock,
-        initiator_address,
-        redeemer_pk,
-        SWAP_AMOUNT,
-        TIMELOCK,
-    );
-    // Try to create a duplicate with same secret and initiator
-    let (_, secret_hash) = generate_secret();
-
-    // Mint more coins for the second attempt
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-        transfer::public_transfer(mint_coins, ADMIN);
-    };
-
-    // Try to create a duplicate (should fail)
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-
-        // This should fail due to duplicate order_id
-        AtomicSwap::initiate_on_behalf(
-            &mut registry,
-            initiator_address,
+            initiator_pk,
             redeemer_pk,
             secret_hash,
             SWAP_AMOUNT,
@@ -462,12 +412,12 @@ fun test_revert_redeem_already_fulfilled() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
-    let (_initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
 
     let order_id = initialize_test_swap(
         &mut scenario,
         &clock,
-        initiator_address,
+        initiator_pk,
         redeemer_pk,
         SWAP_AMOUNT,
         TIMELOCK,
@@ -518,7 +468,7 @@ fun test_revert_init_same_initiator_redeemer() {
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
     let (_, secret_hash) = generate_secret();
-    let (initiator_pk, initiator_address, _redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, _initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
     // Mint coins to the initiator
     ts::next_tx(&mut scenario, ADMIN);
@@ -534,52 +484,9 @@ fun test_revert_init_same_initiator_redeemer() {
         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
 
         // This should fail since initiator and redeemer are the same
-        AtomicSwap::initiate_on_behalf(
+        AtomicSwap::initiate_swap(
             &mut registry,
-            initiator_address,
             initiator_pk,
-            secret_hash,
-            SWAP_AMOUNT,
-            TIMELOCK,
-            vector::empty<u8>(),
-            init_coins,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-// Test that same initiator and redeemer is rejected
-#[test]
-#[expected_failure(abort_code = AtomicSwap::ESameInitiatorRedeemer)]
-fun test_revert_init_on_behalf_same_initiator_redeemer() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_, secret_hash) = generate_secret();
-    let (initiator_pk, initiator_address, _redeemer_pk, _redeemer_address) = generate_keypair();
-
-    // Mint coins to the initiator
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-        transfer::public_transfer(mint_coins, initiator_address);
-    };
-
-    // Try to create a swap with same initiator and redeemer (should fail)
-    ts::next_tx(&mut scenario, initiator_address);
-    {
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-
-        // This should fail since initiator and redeemer are the same
-        AtomicSwap::initiate(
-            &mut registry,
             initiator_pk,
             secret_hash,
             SWAP_AMOUNT,
@@ -604,12 +511,12 @@ fun test_revert_refund_already_fulfilled() {
     let mut scenario = setup();
     let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
-    let (_initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
+    let (initiator_pk, _initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
 
     let order_id = initialize_test_swap(
         &mut scenario,
         &clock,
-        initiator_address,
+        initiator_pk,
         redeemer_pk,
         SWAP_AMOUNT,
         TIMELOCK,
@@ -667,7 +574,7 @@ fun test_revert_init_zero_timelock() {
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
     let (_, secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
     // Mint coins to the initiator
     ts::next_tx(&mut scenario, ADMIN);
@@ -683,51 +590,9 @@ fun test_revert_init_zero_timelock() {
         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
 
         // This should fail due to zero timelock
-        AtomicSwap::initiate(
+        AtomicSwap::initiate_swap(
             &mut registry,
-            redeemer_pk,
-            secret_hash,
-            SWAP_AMOUNT,
-            0, // Zero timelock
-            vector::empty<u8>(),
-            init_coins,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-#[test]
-#[expected_failure(abort_code = AtomicSwap::EInvalidTimelock)]
-fun test_revert_init_on_behalf_zero_timelock() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_, secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
-
-    // Mint coins to the initiator
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-        transfer::public_transfer(mint_coins, ADMIN);
-    };
-
-    // Try to create a swap with zero timelock (should fail)
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-
-        // This should fail due to zero timelock
-        AtomicSwap::initiate_on_behalf(
-            &mut registry,
-            initiator_address,
+            initiator_pk,
             redeemer_pk,
             secret_hash,
             SWAP_AMOUNT,
@@ -753,7 +618,7 @@ fun test_revert_init_big_timelock() {
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
     let (_, secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
     // Mint coins to the initiator
     ts::next_tx(&mut scenario, ADMIN);
@@ -769,98 +634,13 @@ fun test_revert_init_big_timelock() {
         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
 
         // This should fail due to zero timelock
-        AtomicSwap::initiate(
+        AtomicSwap::initiate_swap(
             &mut registry,
+            initiator_pk,
             redeemer_pk,
             secret_hash,
             SWAP_AMOUNT,
             604800001, // >7 days timelock
-            vector::empty<u8>(),
-            init_coins,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-#[test]
-#[expected_failure(abort_code = AtomicSwap::EInvalidTimelock)]
-fun test_revert_init_on_behalf_big_timelock() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_, secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
-
-    // Mint coins to the initiator
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-        transfer::public_transfer(mint_coins, ADMIN);
-    };
-
-    // Try to create a swap with zero timelock (should fail)
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-
-        // This should fail due to zero timelock
-        AtomicSwap::initiate_on_behalf(
-            &mut registry,
-            initiator_address,
-            redeemer_pk,
-            secret_hash,
-            SWAP_AMOUNT,
-            604800001, // >7 days timelock
-            vector::empty<u8>(),
-            init_coins,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-#[test]
-#[expected_failure(abort_code = AtomicSwap::EInvalidSecretHashLength)]
-fun test_revert_init_on_behalf_invalid_secret_hash_length() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_, _secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
-
-    // Mint coins to the initiator
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-        transfer::public_transfer(mint_coins, ADMIN);
-    };
-
-    // Try to create a swap with zero timelock (should fail)
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-
-        // This should fail due to zero timelock
-        AtomicSwap::initiate_on_behalf(
-            &mut registry,
-            initiator_address,
-            redeemer_pk,
-            x"1234",
-            SWAP_AMOUNT,
-            TIMELOCK,
             vector::empty<u8>(),
             init_coins,
             &clock,
@@ -881,7 +661,7 @@ fun test_revert_init_invalid_secret_hash_length() {
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
     let (_, _secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
     // Mint coins to the initiator
     ts::next_tx(&mut scenario, ADMIN);
@@ -896,9 +676,9 @@ fun test_revert_init_invalid_secret_hash_length() {
         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
 
-        // This should fail due to zero timelock
-        AtomicSwap::initiate(
+        AtomicSwap::initiate_swap(
             &mut registry,
+            initiator_pk,
             redeemer_pk,
             x"1234",
             SWAP_AMOUNT,
@@ -924,7 +704,7 @@ fun test_revert_init_swap_zero_amount() {
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
     let (_, secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
     // Mint coins to the initiator
     ts::next_tx(&mut scenario, ADMIN);
@@ -940,98 +720,12 @@ fun test_revert_init_swap_zero_amount() {
         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
 
         // This should fail due to zero amount
-        AtomicSwap::initiate(
+        AtomicSwap::initiate_swap(
             &mut registry,
+            initiator_pk,
             redeemer_pk,
             secret_hash,
             0, // Zero amount
-            TIMELOCK,
-            vector::empty<u8>(),
-            init_coins,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-#[test]
-#[expected_failure(abort_code = AtomicSwap::EZeroAmount)]
-fun test_revert_init_on_behalf_zero_amount() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_, secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
-
-    // Mint coins to the initiator
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-        transfer::public_transfer(mint_coins, ADMIN);
-    };
-
-    // Try to create a swap with zero amount (should fail)
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-
-        // This should fail due to zero amount
-        AtomicSwap::initiate_on_behalf(
-            &mut registry,
-            initiator_address,
-            redeemer_pk,
-            secret_hash,
-            0, // Zero amount
-            TIMELOCK,
-            vector::empty<u8>(),
-            init_coins,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-#[test]
-#[expected_failure(abort_code = AtomicSwap::EZeroAddressInitiator)]
-fun test_revert_init_on_behalf_zero_initiator() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_, secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
-
-    // Mint coins to the initiator
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-        transfer::public_transfer(mint_coins, initiator_address);
-    };
-
-    // Try to create a swap with zero amount (should fail)
-    ts::next_tx(&mut scenario, initiator_address);
-    {
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-        // This should fail due to zero amount
-        AtomicSwap::initiate_on_behalf(
-            &mut registry,
-            address::from_bytes(
-                x"0000000000000000000000000000000000000000000000000000000000000000",
-            ),
-            redeemer_pk,
-            secret_hash,
-            SWAP_AMOUNT,
             TIMELOCK,
             vector::empty<u8>(),
             init_coins,
@@ -1054,7 +748,7 @@ fun test_revert_init_swap_insufficient_balance() {
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
     let (_, secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
     // Mint coins to the initiator (less than swap amount)
     ts::next_tx(&mut scenario, ADMIN);
     {
@@ -1069,8 +763,9 @@ fun test_revert_init_swap_insufficient_balance() {
         let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
 
         // This should fail due to insufficient balance
-        AtomicSwap::initiate(
+        AtomicSwap::initiate_swap(
             &mut registry,
+            initiator_pk,
             redeemer_pk,
             secret_hash,
             SWAP_AMOUNT, // Amount greater than available coins
@@ -1082,159 +777,6 @@ fun test_revert_init_swap_insufficient_balance() {
         );
 
         ts::return_shared(registry);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-// Test insufficient balance
-#[test]
-#[expected_failure(abort_code = AtomicSwap::EIncorrectFunds)]
-fun test_revert_init_on_behalf_insufficient_balance() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_, secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
-    // Mint coins to the initiator (less than swap amount)
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mint_coins = mint_coins(SWAP_AMOUNT / 2, ts::ctx(&mut scenario));
-        transfer::public_transfer(mint_coins, initiator_address);
-    };
-
-    // Try to create a swap with insufficient balance (should fail)
-    ts::next_tx(&mut scenario, initiator_address);
-    {
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-
-        // This should fail due to insufficient balance
-        AtomicSwap::initiate_on_behalf(
-            &mut registry,
-            initiator_address,
-            redeemer_pk,
-            secret_hash,
-            SWAP_AMOUNT, // Amount greater than available coins
-            TIMELOCK,
-            vector::empty<u8>(),
-            init_coins,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-// Test insufficient balance
-#[test]
-#[expected_failure(abort_code = AtomicSwap::ESameFunderRedeemer)]
-fun test_revert_init_on_behalf_same_funder_redeemer() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_, secret_hash) = generate_secret();
-    let (_funder_pk, funder_address, _redeemer_pk, _redeemer_address) = generate_keypair();
-    // Mint coins to the initiator (less than swap amount)
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mint_coins = mint_coins(SWAP_AMOUNT / 2, ts::ctx(&mut scenario));
-        transfer::public_transfer(mint_coins, funder_address);
-    };
-
-    ts::next_tx(&mut scenario, funder_address);
-    {
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-        let initiator: address = @0xFF;
-        // This should fail due to same funder and redeemer
-        AtomicSwap::initiate_on_behalf(
-            &mut registry,
-            initiator,
-            _funder_pk,
-            secret_hash,
-            SWAP_AMOUNT, // Amount greater than available coins
-            TIMELOCK,
-            vector::empty<u8>(),
-            init_coins,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-#[test]
-fun test_init_on_behalf() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (secret, secret_hash) = generate_secret();
-    let (_funder_pk, funder_address, redeemer_pk, redeemer_address) = generate_keypair();
-    let initiator: address = @0xFF;
-
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mint_coins = mint_coins(SWAP_AMOUNT, ts::ctx(&mut scenario));
-        transfer::public_transfer(mint_coins, funder_address);
-    };
-
-    ts::next_tx(&mut scenario, funder_address);
-    {
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let init_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-
-        AtomicSwap::initiate_on_behalf(
-            &mut registry,
-            initiator,
-            redeemer_pk,
-            secret_hash,
-            SWAP_AMOUNT,
-            TIMELOCK,
-            vector::empty<u8>(),
-            init_coins,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry);
-    };
-
-    ts::next_tx(&mut scenario, redeemer_address);
-    {
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let order_id = AtomicSwap::generate_order_id(
-            secret_hash,
-            initiator,
-            redeemer_address,
-            TIMELOCK,
-            SWAP_AMOUNT,
-            &registry
-        );
-        AtomicSwap::redeem_swap(
-            &mut registry,
-            order_id,
-            secret,
-            ts::ctx(&mut scenario),
-        );
-        ts::return_shared(registry);
-    };
-
-    ts::next_tx(&mut scenario, redeemer_address);
-    {
-        // Check that REDEEMER received the coins
-        let redeemed_bal = ts::take_from_sender<Coin<SUI>>(&scenario);
-        assert!(coin::value(&redeemed_bal) == SWAP_AMOUNT as u64, 0);
-        ts::return_to_sender<Coin<SUI>>(&scenario, redeemed_bal);
     };
 
     clock::destroy_for_testing(clock);
@@ -1308,12 +850,12 @@ fun test_instant_refund() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
     let order_id = initialize_test_swap(
         &mut scenario,
         &clock,
-        initiator_address,
+        initiator_pk,
         redeemer_pk,
         SWAP_AMOUNT,
         TIMELOCK,
@@ -1326,10 +868,9 @@ fun test_instant_refund() {
         let reg_id = AtomicSwap::get_order_reg_id<SUI>(&registry);
         let registry_addr = object::uid_to_address(reg_id);
         let _refund_digest = AtomicSwap::instant_refund_digest(order_id, registry_addr);
-
         // Generated using fastcrypto-cli
         let refund_signature =
-            x"3b887355dab78f0e0651994e9e5c537604b50c4a5780315ecbfe7b5853e785e98e7ff3d7b638b8a9a65466e92c1b5ff4bd00df86b04c6f4aacc37a027c144609";
+            x"a06adca18ac2a4cbdf9e8c59b2cc84a4dbe08ec3fc6d4052a31fe6274d589358e2e109e1a7a2c58b525ff9fcf686a8bc7aa320a1e337d1a2e2f21cb50fe89a05";
 
         AtomicSwap::instant_refund(
             &mut registry,
@@ -1358,12 +899,12 @@ fun test_instant_refund_redeemer_called() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
     let order_id = initialize_test_swap(
         &mut scenario,
         &clock,
-        initiator_address,
+        initiator_pk,
         redeemer_pk,
         SWAP_AMOUNT,
         TIMELOCK,
@@ -1410,12 +951,12 @@ fun test_revert_instant_refund_invalid_signature() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
-    let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
     let order_id = initialize_test_swap(
         &mut scenario,
         &clock,
-        initiator_address,
+        initiator_pk,
         redeemer_pk,
         SWAP_AMOUNT,
         TIMELOCK,
@@ -1450,12 +991,12 @@ fun test_revert_instant_refund_already_fulfilled() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
-    let (_initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, redeemer_pk, redeemer_address) = generate_keypair();
 
     let order_id = initialize_test_swap(
         &mut scenario,
         &clock,
-        initiator_address,
+        initiator_pk,
         redeemer_pk,
         SWAP_AMOUNT,
         TIMELOCK,
@@ -1540,18 +1081,48 @@ fun test_revert_invalid_public_key_length() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
-    let (_initiator_pk, initiator_address, _redeemer_pk, _redeemer_address) = generate_keypair();
+    let (initiator_pk, initiator_address, _redeemer_pk, _redeemer_address) = generate_keypair();
 
     let _order_id = initialize_test_swap(
         &mut scenario,
         &clock,
-        initiator_address,
+        initiator_pk,
         x"0121",
         SWAP_AMOUNT,
         TIMELOCK,
     );
 
     clock::destroy_for_testing(clock);
+    ts::end(scenario);
+}
+
+#[test]
+fun test_order_id_gen(){
+    let mut scenario = setup();
+    
+    // Create test data
+    let initiator = x"b9c6ee1630ef3e711144a648db06bbb2284f7274cfbee53ffcee503cc1a49200";
+    let redeemer = x"f1a756ceb2955f680ab622c9c271aa437a22aa978c34ae456f24400d6ea7ccdd";
+    let timelock = 10;
+    let amount = 10;
+    let secret_hash = x"762b82db7b75ed4848fc544d2907ee63e00d768dcb3cec839584995db5253f60";
+
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        let registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+        std::debug::print(&registry);
+        let _order_id = AtomicSwap::generate_order_id(
+            secret_hash,
+            initiator,
+            redeemer,
+            timelock,
+            amount,
+            &registry
+        );
+        ts::return_shared(registry);
+        std::debug::print(&_order_id);
+    };
+    
     ts::end(scenario);
 }
 
@@ -1563,7 +1134,7 @@ fun test_revert_invalid_public_key_length() {
 //     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
 //     let (_, secret_hash) = generate_secret();
-//     let (__initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
+//     let (_initiator_pk, initiator_address, redeemer_pk, _redeemer_address) = generate_keypair();
 
 //     // Create MYCOIN currency and mint all coins to ADMIN
 //     ts::next_tx(&mut scenario, ADMIN);

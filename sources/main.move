@@ -19,7 +19,7 @@ use sui::tx_context::{Self, TxContext};
 const EIncorrectFunds: u64 = 1;
 const EOrderNotExpired: u64 = 2;
 const EZeroAddressInitiator: u64 = 3;
-const EOrderFulfilled: u64 = 4;
+const EZeroAddressRedeemer: u64 = 4;
 const EOrderNotInitiated: u64 = 5;
 const EInvalidSignature: u64 = 6;
 const EDuplicateOrder: u64 = 7;
@@ -27,10 +27,10 @@ const EIncorrectSecret: u64 = 8;
 const EInvalidTimelock: u64 = 9;
 const EZeroAmount: u64 = 10;
 const ESameInitiatorRedeemer: u64 = 11;
-const ESameFunderRedeemer: u64 = 12;
-const EInvalidPubkey: u64 = 13;
-const EInvalidSecretHashLength: u64 = 14;
-const EZeroAddressRedeemer: u64 = 15;
+const EInvalidPubkey: u64 = 12;
+const EInvalidSecretHashLength: u64 = 13;
+const EOrderFulfilled: u64 = 14;
+const ESameFunderRedeemer: u64 = 15;
 
 // ================ Type Hash Constants ================
 // keccak256() value of b"Refund(bytes32 orderId, address registry)"
@@ -94,46 +94,6 @@ public fun create_orders_registry<CoinType>(ctx: &mut TxContext): ID {
     orders_reg_id
 }
 
-/// Initiates a new atomic swap
-/// @notice This function calls an internal function initiate_<CoinType> to handle the actual initiation process
-/// @param orders_reg The registry to store the order
-/// @param redeemer_pubk The public key of the redeemer
-/// @param secret_hash The hash of the secret
-/// @param amount The amount of coins to swap
-/// @param timelock The time lock period for the swap (in ms)
-/// @param coins The coins to be swapped
-/// @param clock The clock to get the current time
-/// @param ctx The transaction context
-// public fun initiate<CoinType>(
-//     orders_reg: &mut OrdersRegistry<CoinType>,
-//     initiator_pubk: vector<u8>,
-//     redeemer_pubk: vector<u8>,
-//     secret_hash: vector<u8>,
-//     amount: u64,
-//     timelock: u256,
-//     destination_data: vector<u8>,
-//     coins: Coin<CoinType>,
-//     clock: &Clock,
-//     ctx: &mut TxContext,
-// ) {
-//     let redeemer = gen_addr(redeemer_pubk);
-//     safe_params(redeemer, tx_context::sender(ctx), amount, timelock, secret_hash);
-//     assert!(coin::value<CoinType>(&coins) == amount, EIncorrectFunds);
-//     initiate_<CoinType>(
-//         orders_reg,
-//         tx_context::sender(ctx),
-//         redeemer,
-//         redeemer_pubk,
-//         secret_hash,
-//         amount,
-//         timelock,
-//         destination_data,
-//         coins,
-//         clock,
-//         ctx,
-//     );
-// }
-
 /// Initiates a new atomic swap on behalf of the initiator
 /// @notice same logic as initiate but allows a different initiator
 /// @param orders_reg The registry to store the order
@@ -159,8 +119,7 @@ public fun initiate_swap<CoinType>(
 ) {
     let redeemer = gen_addr(redeemer_pubk);
     let initiator= gen_addr(initiator_pubk);
-    assert!(tx_context::sender(ctx) != redeemer, ESameFunderRedeemer);
-    safe_params(redeemer, initiator, amount, timelock, secret_hash);
+    safe_params(redeemer, initiator, amount, timelock, secret_hash, tx_context::sender(ctx));
     assert!(coin::value<CoinType>(&coins) == amount, EIncorrectFunds);
     initiate_<CoinType>(
         orders_reg,
@@ -314,8 +273,10 @@ fun safe_params(
     amount: u64,
     timelock: u256,
     secret_hash: vector<u8>,
+    funder: address
 ) {
     assert!(initiator != redeemer, ESameInitiatorRedeemer);
+    assert!(funder != redeemer, ESameFunderRedeemer);
     assert!(amount != 0, EZeroAmount);
     //timelock > 0ms and <= 7 days
     assert!(timelock > 0 && timelock < 604800001, EInvalidTimelock);
