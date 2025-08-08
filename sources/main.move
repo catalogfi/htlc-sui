@@ -8,9 +8,8 @@ use sui::bcs;
 use sui::clock::{Self, Clock};
 use sui::coin::{Self, Coin};
 use sui::dynamic_field;
-use sui::ed25519;
 use sui::event;
-use sui::hash::{keccak256, blake2b256};
+use sui::hash::keccak256;
 use sui::object::{Self, ID, UID};
 use sui::transfer;
 use sui::tx_context::{Self, TxContext};
@@ -21,16 +20,15 @@ const EOrderNotExpired: u64 = 2;
 const EZeroAddressInitiator: u64 = 3;
 const EZeroAddressRedeemer: u64 = 4;
 const EOrderNotInitiated: u64 = 5;
-const EInvalidSignature: u64 = 6;
 const EDuplicateOrder: u64 = 7;
 const EIncorrectSecret: u64 = 8;
 const EInvalidTimelock: u64 = 9;
 const EZeroAmount: u64 = 10;
 const ESameInitiatorRedeemer: u64 = 11;
-const EInvalidPubkey: u64 = 12;
 const EInvalidSecretHashLength: u64 = 13;
 const EOrderFulfilled: u64 = 14;
 const ESameFunderRedeemer: u64 = 15;
+const ESenderNotRedeemer: u64 = 16;
 
 // ================ Type Hash Constants ================
 // keccak256() value of b"Refund(bytes32 orderId, address registry)"
@@ -42,8 +40,8 @@ const REFUND_TYPEHASH: vector<u8> =
 public struct Order<phantom CoinType> has key, store {
     id: UID,
     is_fulfilled: bool,
-    initiator_pubk: vector<u8>,
-    redeemer_pubk: vector<u8>,
+    initiator: vector<u8>,
+    redeemer: vector<u8>,
     amount: u64,
     initiated_at: u256,
     coins: Coin<CoinType>,
@@ -105,10 +103,10 @@ public fun create_orders_registry<CoinType>(ctx: &mut TxContext): ID {
 /// @param coins The coins to be swapped
 /// @param clock The clock to get the current time
 /// @param ctx The transaction context
-public fun initiate_swap<CoinType>(
+public fun initiate<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
-    initiator_pubk: vector<u8>,
-    redeemer_pubk: vector<u8>,
+    initiator: vector<u8>,
+    redeemer: vector<u8>,
     secret_hash: vector<u8>,
     amount: u64,
     timelock: u256,
@@ -117,14 +115,12 @@ public fun initiate_swap<CoinType>(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let redeemer = gen_addr(redeemer_pubk);
-    let initiator= gen_addr(initiator_pubk);
-    safe_params(redeemer, initiator, amount, timelock, secret_hash, tx_context::sender(ctx));
+    safe_params(redeemer, initiator, amount, timelock, secret_hash, address::to_bytes(tx_context::sender(ctx)));
     assert!(coin::value<CoinType>(&coins) == amount, EIncorrectFunds);
     initiate_<CoinType>(
         orders_reg,
-        initiator_pubk,
-        redeemer_pubk,
+        initiator,
+        redeemer,
         secret_hash,
         amount,
         timelock,
@@ -141,7 +137,7 @@ public fun initiate_swap<CoinType>(
 /// @param order_id The ID of the order to be refunded
 /// @param clock The clock to get the current time
 /// @param ctx The transaction context
-public fun refund_swap<CoinType>(
+public fun refund<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
     order_id: vector<u8>,
     clock: &Clock,
@@ -163,7 +159,7 @@ public fun refund_swap<CoinType>(
 
     transfer::public_transfer(
         coin::split<CoinType>(&mut order.coins, order.amount, ctx),
-        gen_addr(order.initiator_pubk),
+        address::from_bytes(order.initiator),
     );
 }
 
@@ -173,7 +169,7 @@ public fun refund_swap<CoinType>(
 /// @param order_id The ID of the order to be refunded
 /// @param secret The secret to redeem the tokens
 /// @param ctx The transaction context
-public fun redeem_swap<CoinType>(
+public fun redeem<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
     order_id: vector<u8>,
     secret: vector<u8>,
@@ -186,12 +182,11 @@ public fun redeem_swap<CoinType>(
 
     assert!(!order.is_fulfilled, EOrderFulfilled);
 
-    let redeemer = gen_addr(order.redeemer_pubk);
     let secret_hash = hash::sha2_256(secret);
     let calc_order_id = create_order_id(
         secret_hash,
-        order.initiator_pubk,
-        order.redeemer_pubk,
+        order.initiator,
+        order.redeemer,
         order.timelock,
         order.amount,
         registry_addr
@@ -209,7 +204,7 @@ public fun redeem_swap<CoinType>(
 
     transfer::public_transfer(
         coin::split<CoinType>(&mut order.coins, order.amount, ctx),
-        redeemer,
+        address::from_bytes(order.redeemer),
     );
 }
 
@@ -223,21 +218,14 @@ public fun redeem_swap<CoinType>(
 public fun instant_refund<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
     order_id: vector<u8>,
-    signature: vector<u8>,
     ctx: &mut TxContext,
 ) {
     assert!(dynamic_field::exists_(&orders_reg.id, order_id), EOrderNotInitiated);
-
-    let registry_id = object::uid_to_address(&orders_reg.id);
+    
     let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
 
+    assert!(tx_context::sender(ctx) == address::from_bytes(order.redeemer), ESenderNotRedeemer);
     assert!(!order.is_fulfilled, EOrderFulfilled);
-
-    if (tx_context::sender(ctx) != gen_addr(order.redeemer_pubk)) {
-        let refund_digest = instant_refund_digest(order_id, registry_id);
-        let verified = ed25519::ed25519_verify(&signature, &order.redeemer_pubk, &refund_digest);
-        assert!(verified, EInvalidSignature);
-    };
 
     order.is_fulfilled = true;
 
@@ -245,7 +233,7 @@ public fun instant_refund<CoinType>(
 
     transfer::public_transfer(
         coin::split<CoinType>(&mut order.coins, order.amount, ctx),
-        gen_addr(order.initiator_pubk),
+        address::from_bytes(order.initiator),
     );
 }
 
@@ -268,26 +256,26 @@ public fun instant_refund_digest(order_id: vector<u8>, registry_id: address): ve
 /// @param amount The amount of coins to swap
 /// @param timelock The time lock period for the swap (in ms)
 fun safe_params(
-    redeemer: address,
-    initiator: address,
+    redeemer: vector<u8>,
+    initiator: vector<u8>,
     amount: u64,
     timelock: u256,
     secret_hash: vector<u8>,
-    funder: address
+    funder: vector<u8>
 ) {
+    assert!(
+        address::from_bytes(initiator) != address::from_bytes(x"0000000000000000000000000000000000000000000000000000000000000000"),
+        EZeroAddressInitiator,
+    );
+    assert!(
+        address::from_bytes(redeemer) != address::from_bytes(x"0000000000000000000000000000000000000000000000000000000000000000"),
+        EZeroAddressRedeemer,
+    );
     assert!(initiator != redeemer, ESameInitiatorRedeemer);
     assert!(funder != redeemer, ESameFunderRedeemer);
     assert!(amount != 0, EZeroAmount);
     //timelock > 0ms and <= 7 days
     assert!(timelock > 0 && timelock < 604800001, EInvalidTimelock);
-    assert!(
-        initiator != address::from_bytes(x"0000000000000000000000000000000000000000000000000000000000000000"),
-        EZeroAddressInitiator,
-    );
-    assert!(
-        redeemer != address::from_bytes(x"0000000000000000000000000000000000000000000000000000000000000000"),
-        EZeroAddressRedeemer,
-    );
     assert!(vector::length(&secret_hash) == 32, EInvalidSecretHashLength);
 }
 
@@ -299,8 +287,8 @@ fun safe_params(
 /// @return The unique order ID
 fun create_order_id(
     secret_hash: vector<u8>,
-    initiator_pubk: vector<u8>,
-    redeemer_pubk: vector<u8>,
+    initiator: vector<u8>,
+    redeemer: vector<u8>,
     timelock: u256,
     amount: u64,
     reg_id: address
@@ -313,8 +301,8 @@ fun create_order_id(
     let mut data = vector::empty<u8>();
     vector::append(&mut data, sui_chain_id);
     vector::append(&mut data, secret_hash);
-    vector::append(&mut data, initiator_pubk);
-    vector::append(&mut data, redeemer_pubk);
+    vector::append(&mut data, initiator);
+    vector::append(&mut data, redeemer);
     vector::append(&mut data, timelock_bytes);
     vector::append(&mut data, amount);
     vector::append(&mut data, address::to_bytes(reg_id));
@@ -334,27 +322,12 @@ fun encode(typehash: vector<u8>, order_id: vector<u8>, registry_id: vector<u8>):
     keccak256(&data)
 }
 
-/// Internal function to generate address from a public key
-/// @param pubk The public key to be converted to address
-/// @return The generated address
-/// @note Currently only supports Ed25519 public keys
-fun gen_addr(pubk: vector<u8>): address {
-    // 0x00 = ED25519, 0x01 = Secp256k1, 0x02 = Secp256r1, 0x03 = multiSig
-    assert!(vector::length(&pubk) == 32, EInvalidPubkey);
-    let flag: u8 = 0;
-    let mut preimage = vector::empty<u8>();
-    vector::push_back(&mut preimage, flag);
-    vector::append(&mut preimage, pubk);
-    let addr = blake2b256(&preimage);
-    address::from_bytes(addr)
-}
-
 /// Internal function to initiate a swap
 /// @notice params are passed from initiate or initiate_on_behalf
 fun initiate_<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
-    initiator_pubk: vector<u8>,
-    redeemer_pubk: vector<u8>,
+    initiator: vector<u8>,
+    redeemer: vector<u8>,
     secret_hash: vector<u8>,
     amount: u64,
     timelock: u256,
@@ -364,15 +337,15 @@ fun initiate_<CoinType>(
     ctx: &mut TxContext,
 ) {
     let reg_id = object::uid_to_address(&orders_reg.id);
-    let order_id = create_order_id(secret_hash, initiator_pubk, redeemer_pubk, timelock, amount, reg_id);
+    let order_id = create_order_id(secret_hash, initiator, redeemer, timelock, amount, reg_id);
 
     assert!(!dynamic_field::exists_(&orders_reg.id, order_id), EDuplicateOrder);
 
     let order = Order {
         id: object::new(ctx),
         is_fulfilled: false,
-        initiator_pubk,
-        redeemer_pubk,
+        initiator,
+        redeemer,
         amount,
         initiated_at: clock::timestamp_ms(clock) as u256,
         coins,
