@@ -1,7 +1,8 @@
-#[allow(duplicate_alias, lint(coin_field))]
-module atomic_swapv1::AtomicSwap;
+#[allow(unused_use)]
+#[test_only]
+module atomic_swapv1::AtomicSwapTests;
 
-use 0x1::hash;
+use 0x1::hash as hash_lib;
 use std::vector;
 use sui::address;
 use sui::bcs;
@@ -196,7 +197,7 @@ public fun redeem_swap<CoinType>(
     assert!(!order.is_fulfilled, EOrderFulfilled);
 
     let redeemer = gen_addr(order.redeemer_pubk);
-    let secret_hash = hash::sha2_256(secret);
+    let secret_hash = hash_lib::sha2_256(secret);
     let calc_order_id = create_order_id(
         secret_hash,
         order.initiator,
@@ -350,7 +351,7 @@ fun create_order_id(
     vector::append(&mut data, timelock_bytes);
     vector::append(&mut data, amount);
     vector::append(&mut data, address::to_bytes(reg_id));
-    hash::sha2_256(data)
+    hash_lib::sha2_256(data)
 }
 
 /// Internal function to encode type hash with data
@@ -466,4 +467,9 @@ public fun get_refund_typehash(): vector<u8> {
 #[test_only]
 public fun get_order_reg_id<CoinType>(orders_reg: &OrdersRegistry<CoinType>): &UID {
     &orders_reg.id
+}
+
+#[test_only]
+public fun create_address_type_pubkey(pubk: vector<u8>): AddressType {
+    AddressType::Pubkey(pubk)
 }

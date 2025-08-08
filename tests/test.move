@@ -8,9 +8,9 @@ use sui::address;
 use sui::clock::{Self, Clock};
 use sui::coin::{Self, Coin, TreasuryCap};
 use sui::hash::blake2b256;
+use sui::object::uid_to_inner;
 use sui::sui::{Self, SUI};
 use sui::test_scenario::{Self as ts, Scenario};
-use sui::object::uid_to_inner;
 
 // Test addresses
 const ADMIN: address = @0xAD;
@@ -19,6 +19,7 @@ const REDEEMER: address = @0xA2;
 // Test constants
 const SWAP_AMOUNT: u64 = 1000;
 const TIMELOCK: u256 = 3600000; // 1 hour in milliseconds
+
 // const DESTINATION_DATA: vector<u8> = [];
 // Setup function that creates a test environment
 fun setup(): Scenario {
@@ -96,8 +97,8 @@ fun initialize_test_swap(
 
         AtomicSwap::initiate_swap(
             &mut registry,
-            initiator_pubk,
-            redeemer_pubk,
+            AtomicSwap::create_address_type_pubkey(initiator_pubk),
+            AtomicSwap::create_address_type_pubkey(redeemer_pubk),
             secret_hash,
             amount,
             timelock,
@@ -107,14 +108,15 @@ fun initialize_test_swap(
             ts::ctx(scenario),
         );
 
-    order_id = AtomicSwap::generate_order_id(
-        secret_hash,
-        initiator_pubk,
-        redeemer_pubk,
-        timelock,
-        amount,
-        &registry
-    );
+        order_id =
+            AtomicSwap::generate_order_id(
+                secret_hash,
+                generate_address(initiator_pubk),
+                generate_address(redeemer_pubk),
+                timelock,
+                amount,
+                &registry,
+            );
         ts::return_shared(registry);
     };
 
@@ -161,8 +163,8 @@ fun test_init_swap() {
 
         AtomicSwap::initiate_swap(
             &mut registry,
-            initiator_pk,
-            redeemer_pk,
+            AtomicSwap::create_address_type_pubkey(initiator_pk),
+            AtomicSwap::create_address_type_pubkey(redeemer_pk),
             secret_hash,
             SWAP_AMOUNT,
             TIMELOCK,
@@ -387,8 +389,8 @@ fun test_revert_init_duplicate_order() {
         // This should fail due to duplicate order_id
         AtomicSwap::initiate_swap(
             &mut registry,
-            initiator_pk,
-            redeemer_pk,
+            AtomicSwap::create_address_type_pubkey(initiator_pk),
+            AtomicSwap::create_address_type_pubkey(redeemer_pk),
             secret_hash,
             SWAP_AMOUNT,
             TIMELOCK,
@@ -486,8 +488,8 @@ fun test_revert_init_same_initiator_redeemer() {
         // This should fail since initiator and redeemer are the same
         AtomicSwap::initiate_swap(
             &mut registry,
-            initiator_pk,
-            initiator_pk,
+            AtomicSwap::create_address_type_pubkey(initiator_pk),
+            AtomicSwap::create_address_type_pubkey(initiator_pk),
             secret_hash,
             SWAP_AMOUNT,
             TIMELOCK,
@@ -592,8 +594,8 @@ fun test_revert_init_zero_timelock() {
         // This should fail due to zero timelock
         AtomicSwap::initiate_swap(
             &mut registry,
-            initiator_pk,
-            redeemer_pk,
+            AtomicSwap::create_address_type_pubkey(initiator_pk),
+            AtomicSwap::create_address_type_pubkey(redeemer_pk),
             secret_hash,
             SWAP_AMOUNT,
             0, // Zero timelock
@@ -636,8 +638,8 @@ fun test_revert_init_big_timelock() {
         // This should fail due to zero timelock
         AtomicSwap::initiate_swap(
             &mut registry,
-            initiator_pk,
-            redeemer_pk,
+            AtomicSwap::create_address_type_pubkey(initiator_pk),
+            AtomicSwap::create_address_type_pubkey(redeemer_pk),
             secret_hash,
             SWAP_AMOUNT,
             604800001, // >7 days timelock
@@ -678,8 +680,8 @@ fun test_revert_init_invalid_secret_hash_length() {
 
         AtomicSwap::initiate_swap(
             &mut registry,
-            initiator_pk,
-            redeemer_pk,
+            AtomicSwap::create_address_type_pubkey(initiator_pk),
+            AtomicSwap::create_address_type_pubkey(redeemer_pk),
             x"1234",
             SWAP_AMOUNT,
             TIMELOCK,
@@ -722,8 +724,8 @@ fun test_revert_init_swap_zero_amount() {
         // This should fail due to zero amount
         AtomicSwap::initiate_swap(
             &mut registry,
-            initiator_pk,
-            redeemer_pk,
+            AtomicSwap::create_address_type_pubkey(initiator_pk),
+            AtomicSwap::create_address_type_pubkey(redeemer_pk),
             secret_hash,
             0, // Zero amount
             TIMELOCK,
@@ -765,8 +767,8 @@ fun test_revert_init_swap_insufficient_balance() {
         // This should fail due to insufficient balance
         AtomicSwap::initiate_swap(
             &mut registry,
-            initiator_pk,
-            redeemer_pk,
+            AtomicSwap::create_address_type_pubkey(initiator_pk),
+            AtomicSwap::create_address_type_pubkey(redeemer_pk),
             secret_hash,
             SWAP_AMOUNT, // Amount greater than available coins
             TIMELOCK,
@@ -1097,9 +1099,9 @@ fun test_revert_invalid_public_key_length() {
 }
 
 #[test]
-fun test_order_id_gen(){
+fun test_order_id_gen() {
     let mut scenario = setup();
-    
+
     // Create test data
     let initiator = x"b9c6ee1630ef3e711144a648db06bbb2284f7274cfbee53ffcee503cc1a49200";
     let redeemer = x"f1a756ceb2955f680ab622c9c271aa437a22aa978c34ae456f24400d6ea7ccdd";
@@ -1113,16 +1115,16 @@ fun test_order_id_gen(){
         std::debug::print(&registry);
         let _order_id = AtomicSwap::generate_order_id(
             secret_hash,
-            initiator,
-            redeemer,
+            generate_address(initiator),
+            generate_address(redeemer),
             timelock,
             amount,
-            &registry
+            &registry,
         );
         ts::return_shared(registry);
         std::debug::print(&_order_id);
     };
-    
+
     ts::end(scenario);
 }
 
