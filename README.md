@@ -29,7 +29,7 @@ Represents an individual atomic swap with the following properties:
 - `id`: Unique identifier for the order
 - `is_fulfilled`: Status flag to prevent double-spending
 - `initiator`: Address that created the swap
-- `redeemer_pubk`: Public key of the intended recipient
+- `redeemer`: Address of the intended recipient
 - `amount`: Number of coins being swapped
 - `initiated_at`: Timestamp of swap creation
 - `coins`: The actual coins being held in escrow
@@ -62,7 +62,8 @@ Creates a new shared registry for managing atomic swaps of a specific coin type.
 ```rust
 public fun initiate<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
-    redeemer_pubk: vector<u8>,
+    initiator: address,
+    redeemer: address,
     secret_hash: vector<u8>,
     amount: u256,
     timelock: u256,
@@ -77,7 +78,8 @@ Creates a new atomic swap order. The initiator deposits coins that can be redeem
 **Parameters:**
 
 - `orders_reg`: Registry to store the order
-- `redeemer_pubk`: Ed25519 public key of the intended recipient
+- `initiator`: Address of the swap initiator
+- `redeemer`: Address of the intended recipient
 - `secret_hash`: SHA-256 hash of the secret
 - `amount`: Amount of coins to swap (must match coin value)
 - `timelock`: Time period (in milliseconds) before refund is allowed
@@ -96,7 +98,7 @@ Allows a third party to create an atomic swap on behalf of another address. Usef
 ### Redeeming Swaps
 
 ```rust
-public fun redeem_swap<CoinType>(
+public fun redeem<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
     order_id: vector<u8>,
     secret: vector<u8>,
@@ -115,7 +117,7 @@ Completes an atomic swap by providing the correct secret. The coins are transfer
 ### Refunding Swaps
 
 ```rust
-public fun refund_swap<CoinType>(
+public fun refund<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
     order_id: vector<u8>,
     clock: &Clock,
@@ -136,25 +138,24 @@ Returns coins to the initiator after the timelock has expired.
 public fun instant_refund<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
     order_id: vector<u8>,
-    signature: vector<u8>,
     ctx: &mut TxContext
 )
 ```
 
-Allows immediate refund with the redeemer's signature, bypassing the timelock. This enables cooperative cancellations.
+Allows immediate refund by the redeemer, bypassing the timelock. This enables cooperative cancellations.
 
-**Signature Verification:**
+**Requirements:**
 
-- Uses Ed25519 signature scheme
-- Message format: `keccak256(REFUND_TYPEHASH + order_id + registry_id)`
-- Must be signed by the redeemer's private key
+- Only the redeemer can call this function
+- Order must exist and not be fulfilled
+- No signature required - uses transaction sender validation
 
 ## Order ID Generation
 
 Order IDs are deterministically generated using:
 
 ```
-SHA-256(chain_id + secret_hash + initiator_address + redeemer_address + timelock)
+SHA-256(chain_id + secret_hash + initiator + redeemer + timelock + registry_id)
 ```
 
 This ensures uniqueness and prevents replay attacks across different parameters.
@@ -190,14 +191,14 @@ This ensures uniqueness and prevents replay attacks across different parameters.
 | 3    | `EZeroAddressInitiator`    | Initiator cannot be zero address          |
 | 4    | `EOrderFulfilled`          | Order already completed                   |
 | 5    | `EOrderNotInitiated`       | Order doesn't exist                       |
-| 6    | `EInvalidSignature`        | Signature verification failed             |
+| 6    | `ESenderNotRedeemer`       | Only redeemer can call instant_refund     |
 | 7    | `EDuplicateOrder`          | Order ID already exists                   |
 | 8    | `EIncorrectSecret`         | Provided secret doesn't match hash        |
 | 9    | `EZeroTimelock`            | Timelock cannot be zero                   |
 | 10   | `EZeroAmount`              | Amount cannot be zero                     |
 | 11   | `ESameInitiatorRedeemer`   | Initiator and redeemer cannot be the same |
 | 12   | `ESameFunderRedeemer`      | Funder and redeemer cannot be the same    |
-| 13   | `EInvalidPubkey`           | Public key must be 32 bytes (Ed25519)     |
+| 13   | `EInvalidTimelock`         | Timelock must be between 1ms and 7 days   |
 | 14   | `EInvalidSecretHashLength` | SecretHash length must be 32 bytes        |
 
 ## Usage Example
@@ -209,7 +210,8 @@ let registry_id = create_orders_registry<SUI>(ctx);
 // 2. Initiate swap
 initiate<SUI>(
     registry,
-    redeemer_public_key,
+    initiator_address,
+    redeemer_address,
     sha256_hash_of_secret,
     1000000000, // 1 SUI in MIST
     3600000,    // 1 hour timelock
@@ -219,10 +221,13 @@ initiate<SUI>(
 );
 
 // 3. Redeem with secret
-redeem_swap<SUI>(registry, order_id, secret, ctx);
+redeem<SUI>(registry, order_id, secret, ctx);
 
 // OR refund after expiry
-refund_swap<SUI>(registry, order_id, clock, ctx);
+refund<SUI>(registry, order_id, clock, ctx);
+
+// OR instant refund by redeemer
+instant_refund<SUI>(registry, order_id, ctx);
 ```
 
 ## Chain Configuration
@@ -238,19 +243,25 @@ The contract includes chain ID configuration for proper order ID generation:
 
 Currently supports:
 
-- **Ed25519** signatures and public keys (32 bytes)
 - **SHA-256** for secret hashing
 - **Keccak256** for type hashing
-- **BLAKE2b-256** for address generation
+- **Address-based validation** for redeemer authorization
 
 ## Testing
 
-The contract includes test-only functions for comprehensive testing:
+The contract includes comprehensive test coverage (100%) with test-only functions:
 
 - `get_order()`: Retrieve order details
 - `generate_order_id()`: Test order ID generation
 - `get_refund_typehash()`: Get refund type hash
 - `get_order_reg_id()`: Get registry ID
+
+Run tests with:
+
+```bash
+npm run test
+npm run test:coverage
+```
 
 ## Deployment Considerations
 
@@ -258,6 +269,22 @@ The contract includes test-only functions for comprehensive testing:
 2. **Shared Objects**: Registries are shared objects accessible to all users
 3. **Gas Optimization**: Functions are optimized for minimal gas usage
 4. **Event Indexing**: Events enable easy tracking of swap lifecycle
+
+## Deployment
+
+The contract includes automated deployment scripts:
+
+```bash
+# Build and deploy
+npm run build
+npm run deploy:testnet
+
+# Create registry (required for functionality)
+export SUI_PACKAGE_ID="0x..."
+npm run create-registry:testnet
+```
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
 
 ## Contributing
 
