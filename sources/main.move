@@ -93,13 +93,14 @@ public fun create_orders_registry<CoinType>(ctx: &mut TxContext): ID {
 }
 
 /// Initiates a new atomic swap on behalf of the initiator
-/// @notice same logic as initiate but allows a different initiator
+/// @notice The tx_sender will be the funder here. Initiator and funder can be different entities.
 /// @param orders_reg The registry to store the order
 /// @param initiator The address of the initiator
-/// @param redeemer_pubk The public key of the redeemer
+/// @param redeemer The address of the redeemer
 /// @param secret_hash The hash of the secret
 /// @param amount The amount of coins to swap
 /// @param timelock The time lock period for the swap (in ms)
+/// @param destination_data Swap metadata
 /// @param coins The coins to be swapped
 /// @param clock The clock to get the current time
 /// @param ctx The transaction context
@@ -132,7 +133,7 @@ public fun initiate<CoinType>(
 }
 
 /// Refunds tokens to the initiator after timelock has expired
-/// @notice This function checks if the order is expired and not fulfilled before processing the refund
+/// @notice This function checks if the order is expired and not fulfilled before processing for refund
 /// @param orders_reg The registry that contains the order
 /// @param order_id The ID of the order to be refunded
 /// @param clock The clock to get the current time
@@ -164,9 +165,9 @@ public fun refund<CoinType>(
 }
 
 /// Redeems tokens by providing the secret
-/// @notice This function checks if the order is not fulfilled and verifies the secret before processing the redemption
+/// @notice This function checks if the order is not fulfilled, then verifies the secret before processing for redemption
 /// @param orders_reg The registry that contains the order
-/// @param order_id The ID of the order to be refunded
+/// @param order_id The ID of the order to be redeemed
 /// @param secret The secret to redeem the tokens
 /// @param ctx The transaction context
 public fun redeem<CoinType>(
@@ -177,10 +178,10 @@ public fun redeem<CoinType>(
 ) {
     assert!(dynamic_field::exists_(&orders_reg.id, order_id), EOrderNotInitiated);
 
-    let registry_addr = object::uid_to_address(&orders_reg.id);
     let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
-
     assert!(!order.is_fulfilled, EOrderFulfilled);
+
+    let registry_addr = object::uid_to_address(&orders_reg.id);
 
     let secret_hash = hash::sha2_256(secret);
     let calc_order_id = create_order_id(
@@ -208,12 +209,10 @@ public fun redeem<CoinType>(
     );
 }
 
-// @audit-ok currently we only support Ed25519
-/// Permits immediate refund if signed by the redeemer
-/// @notice This function checks if the order is not fulfilled and verifies the signature before processing the refund. Allows refund before timelock expiration.
+/// Performs immediate refund back to the initiator, can only be called by the redeemer
+/// @notice This function checks if the order is not fulfilled before processing the refund. Allows refund before timelock expiration.
 /// @param orders_reg The registry that contains the order
 /// @param order_id The ID of the order to be refunded
-/// @param signature The signature of the redeemer
 /// @param ctx The transaction context
 public fun instant_refund<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
@@ -282,8 +281,10 @@ fun safe_params(
 /// Creates a unique order ID based on secret hash and initiator address
 /// @param secret_hash The hash of the secret
 /// @param initiator The address of the initiator
-/// @param timelock The time lock period for the swap (in ms)
 /// @param redeemer The address of the redeemer
+/// @param timelock The time lock period for the swap (in ms)
+/// @param amount The amount to be locked for the swap
+/// @param reg_id The registry ID the order will be created in.
 /// @return The unique order ID
 fun create_order_id(
     secret_hash: vector<u8>,
