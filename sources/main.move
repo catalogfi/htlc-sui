@@ -177,11 +177,11 @@ public fun redeem<CoinType>(
     ctx: &mut TxContext,
 ) {
     assert!(dynamic_field::exists_(&orders_reg.id, order_id), EOrderNotInitiated);
+    let registry_addr = object::uid_to_address(&orders_reg.id);
 
     let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
     assert!(!order.is_fulfilled, EOrderFulfilled);
 
-    let registry_addr = object::uid_to_address(&orders_reg.id);
 
     let secret_hash = hash::sha2_256(secret);
     let calc_order_id = create_order_id(
