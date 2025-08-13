@@ -1,0 +1,40 @@
+{
+    "name": "htlc-atomic-swap-sui",
+    "version": "1.0.0",
+    "description": "HTLC Atomic Swap contract for Sui blockchain",
+    "main": "scripts/deploy.ts",
+    "scripts": {
+        "build": "chmod +x scripts/build.sh && ./scripts/build.sh",
+        "deploy:testnet": "SUI_NETWORK=testnet tsx scripts/deploy.ts",
+        "deploy:mainnet": "SUI_NETWORK=mainnet tsx scripts/deploy.ts",
+        "deploy:devnet": "SUI_NETWORK=devnet tsx scripts/deploy.ts",
+        "create-registry:testnet": "SUI_NETWORK=testnet tsx scripts/create-registry.ts",
+        "create-registry:mainnet": "SUI_NETWORK=mainnet tsx scripts/create-registry.ts",
+        "create-registry:devnet": "SUI_NETWORK=devnet tsx scripts/create-registry.ts",
+        "test": "sui move test",
+        "test:coverage": "sui move test --coverage",
+        "clean": "rm -f build_output.json deployment-*.json",
+        "get-key": "chmod +x scripts/get-private-key.sh && ./scripts/get-private-key.sh"
+    },
+    "keywords": [
+        "sui",
+        "move",
+        "htlc",
+        "atomic-swap",
+        "blockchain",
+        "smart-contract"
+    ],
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "tsx": "^4.0.0",
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "@mysten/sui": "^1.37.1"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    }
+}
