@@ -44,7 +44,6 @@ coverage/
 # Sui
 .sui/
 
-Move.lock
 build/
 .trace
 registry-testnet.json
