@@ -888,53 +888,6 @@ fun test_instant_refund() {
     ts::end(scenario);
 }
 
-#[test]
-fun test_instant_refund_redeemer_called() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_initiator_pk, initiator_address, _redeemer_pk, redeemer_address) = generate_keypair();
-
-    let order_id = initialize_test_swap(
-        &mut scenario,
-        &clock,
-        initiator_address,
-        redeemer_address,
-        SWAP_AMOUNT,
-        TIMELOCK,
-    );
-
-    // Perform instant refund
-    ts::next_tx(&mut scenario, redeemer_address);
-    {
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let reg_id = AtomicSwap::get_order_reg_id<SUI>(&registry);
-        let registry_addr = object::uid_to_address(reg_id);
-        let _refund_digest = AtomicSwap::instant_refund_digest(order_id, registry_addr);
-
-        AtomicSwap::instant_refund(
-            &mut registry,
-            order_id,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry);
-    };
-
-    // Check that initiator received the coins back
-    ts::next_tx(&mut scenario, initiator_address);
-    {
-        let refunded_coins = ts::take_from_sender<Coin<SUI>>(&scenario);
-        assert!(coin::value(&refunded_coins) == SWAP_AMOUNT, 0);
-        ts::return_to_sender(&scenario, refunded_coins);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-
-
 // Test instant refund on already fulfilled order
 #[test]
 #[expected_failure(abort_code = AtomicSwap::EOrderFulfilled)]
@@ -1019,7 +972,7 @@ fun test_revert_instant_refund_nonexistent_order() {
 // Test instant refund with wrong sender (not redeemer)
 #[test]
 #[expected_failure(abort_code = AtomicSwap::ESenderNotRedeemer)]
-fun test_revert_instant_refund_wrong_sender() {
+fun test_revert_instant_refund_not_redeemer_called() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 

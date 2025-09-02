@@ -59,6 +59,7 @@ public struct Initiated has copy, drop {
     order_id: vector<u8>,
     secret_hash: vector<u8>,
     amount: u64,
+    reg_id: ID,
     destination_data: vector<u8>
 }
 
@@ -67,11 +68,13 @@ public struct Redeemed has copy, drop {
     order_id: vector<u8>,
     secret_hash: vector<u8>,
     secret: vector<u8>,
+    reg_id: ID
 }
 
 /// Emitted when a swap is refunded
 public struct Refunded has copy, drop {
     order_id: vector<u8>,
+    reg_id: ID
 }
 
 public struct RegistryCreated has copy, drop {
@@ -146,6 +149,8 @@ public fun refund<CoinType>(
 ) {
     assert!(dynamic_field::exists_(&orders_reg.id, order_id), EOrderNotInitiated);
 
+    let reg_id = orders_reg.id.uid_to_inner();
+
     let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
 
     assert!(!order.is_fulfilled, EOrderFulfilled);
@@ -156,7 +161,7 @@ public fun refund<CoinType>(
 
     order.is_fulfilled = true;
 
-    event::emit(Refunded { order_id });
+    event::emit(Refunded { order_id, reg_id });
 
     transfer::public_transfer(
         coin::split<CoinType>(&mut order.coins, order.amount, ctx),
@@ -178,6 +183,8 @@ public fun redeem<CoinType>(
 ) {
     assert!(dynamic_field::exists_(&orders_reg.id, order_id), EOrderNotInitiated);
     let registry_addr = object::uid_to_address(&orders_reg.id);
+
+    let reg_id = orders_reg.id.uid_to_inner();
 
     let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
     assert!(!order.is_fulfilled, EOrderFulfilled);
@@ -201,6 +208,7 @@ public fun redeem<CoinType>(
         order_id,
         secret_hash,
         secret,
+        reg_id
     });
 
     transfer::public_transfer(
@@ -221,6 +229,8 @@ public fun instant_refund<CoinType>(
 ) {
     assert!(dynamic_field::exists_(&orders_reg.id, order_id), EOrderNotInitiated);
     
+    let reg_id = orders_reg.id.uid_to_inner();
+    
     let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
 
     assert!(tx_context::sender(ctx) == order.redeemer, ESenderNotRedeemer);
@@ -228,7 +238,7 @@ public fun instant_refund<CoinType>(
 
     order.is_fulfilled = true;
 
-    event::emit(Refunded { order_id });
+    event::emit(Refunded { order_id, reg_id });
 
     transfer::public_transfer(
         coin::split<CoinType>(&mut order.coins, order.amount, ctx),
@@ -360,6 +370,7 @@ fun initiate_<CoinType>(
         secret_hash,
         amount,
         destination_data,
+        reg_id: orders_reg.id.uid_to_inner()
     });
 }
 
