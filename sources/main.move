@@ -10,9 +10,11 @@ use sui::coin::{Self, Coin};
 use sui::dynamic_field;
 use sui::event;
 use sui::hash::keccak256;
+use sui::hex;
 use sui::object::{Self, ID, UID};
 use sui::transfer;
 use sui::tx_context::{Self, TxContext};
+use std::string;
 
 // ================ Error Constants ================
 const EIncorrectFunds: u64 = 1;
@@ -56,8 +58,11 @@ public struct OrdersRegistry<phantom CoinType> has key, store {
 // ================ Event Structs ================
 /// Emitted when a new swap is initiated
 public struct Initiated has copy, drop {
-    order_id: vector<u8>,
-    secret_hash: vector<u8>,
+    order_id: std::string::String,
+    initiator: address,
+    redeemer: address,
+    timelock: u256,
+    secret_hash: std::string::String,
     amount: u64,
     reg_id: ID,
     destination_data: vector<u8>
@@ -366,11 +371,14 @@ fun initiate_<CoinType>(
     dynamic_field::add(&mut orders_reg.id, order_id, order);
 
     event::emit(Initiated {
-        order_id,
-        secret_hash,
+        order_id: string::utf8(hex::encode(order_id)),
+        initiator,
+        redeemer,
+        timelock,
+        secret_hash: string::utf8(hex::encode(secret_hash)),
         amount,
+        reg_id: orders_reg.id.uid_to_inner(),
         destination_data,
-        reg_id: orders_reg.id.uid_to_inner()
     });
 }
 
