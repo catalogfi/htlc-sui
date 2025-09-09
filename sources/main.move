@@ -59,7 +59,7 @@ public struct Initiated has copy, drop {
     order_id: vector<u8>,
     secret_hash: vector<u8>,
     amount: u64,
-    destination_data: vector<u8>
+    destination_data: vector<u8>,
 }
 
 /// Emitted when a swap is redeemed
@@ -75,7 +75,7 @@ public struct Refunded has copy, drop {
 }
 
 public struct RegistryCreated has copy, drop {
-    registry_id: ID
+    registry_id: ID,
 }
 
 // ================ Public Functions ================
@@ -182,7 +182,6 @@ public fun redeem<CoinType>(
     let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
     assert!(!order.is_fulfilled, EOrderFulfilled);
 
-
     let secret_hash = hash::sha2_256(secret);
     let calc_order_id = create_order_id(
         secret_hash,
@@ -220,7 +219,7 @@ public fun instant_refund<CoinType>(
     ctx: &mut TxContext,
 ) {
     assert!(dynamic_field::exists_(&orders_reg.id, order_id), EOrderNotInitiated);
-    
+
     let order: &mut Order<CoinType> = dynamic_field::borrow_mut(&mut orders_reg.id, order_id);
 
     assert!(tx_context::sender(ctx) == order.redeemer, ESenderNotRedeemer);
@@ -263,11 +262,11 @@ fun safe_params(
     funder: address
 ) {
     assert!(
-        initiator != address::from_bytes(x"0000000000000000000000000000000000000000000000000000000000000000"),
+        initiator != @0x0,
         EZeroAddressInitiator,
     );
     assert!(
-        redeemer != address::from_bytes(x"0000000000000000000000000000000000000000000000000000000000000000"),
+        redeemer != @0x0,
         EZeroAddressRedeemer,
     );
     assert!(initiator != redeemer, ESameInitiatorRedeemer);
@@ -363,6 +362,12 @@ fun initiate_<CoinType>(
     });
 }
 
+public fun get_order_reg_address<CoinType>(
+    orders_reg: &mut OrdersRegistry<CoinType>,
+): (address, &mut OrdersRegistry<CoinType>) {
+    let reg_address = object::uid_to_address(&orders_reg.id);
+    (reg_address, orders_reg)
+}
 // // ================================================= Test Only Getters =====================================
 
 #[test_only]
@@ -379,7 +384,7 @@ public fun generate_order_id<ID: key>(
     redeemer: address,
     timelock: u256,
     amount: u64,
-    registry: &ID
+    registry: &ID,
 ): vector<u8> {
     let id = object::id_address(registry);
     let order_id = create_order_id(secret_hash, initiator, redeemer, timelock, amount, id);
@@ -388,8 +393,4 @@ public fun generate_order_id<ID: key>(
 #[test_only]
 public fun get_refund_typehash(): vector<u8> {
     REFUND_TYPEHASH
-}
-#[test_only]
-public fun get_order_reg_id<CoinType>(orders_reg: &OrdersRegistry<CoinType>): &UID {
-    &orders_reg.id
 }
