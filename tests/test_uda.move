@@ -24,8 +24,8 @@ const FUNDER: address = @0xA3;
 
 // Test constants
 const SWAP_AMOUNT: u64 = 1000;
-const TIMELOCK: u256 = 3600000; // 1 hour in milliseconds
-const DEADLINE: u256 = 300000; // 5 minutes in milliseconds
+const TIMELOCK: u256 = 7200000; // 2 hours in milliseconds
+const DEADLINE: u256 = 3600000; // 1 hour in milliseconds
 
 // Setup function that creates a test environment
 fun setup(): Scenario {
@@ -237,7 +237,7 @@ fun test_uda_revert_create_object_zero_amount() {
 
 // Test zero timelock validation
 #[test]
-#[expected_failure(abort_code = UDA::EZeroTimelock)]
+#[expected_failure(abort_code = UDA::EInvalidTimelock)]
 fun test_uda_revert_create_object_zero_timelock() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
@@ -257,6 +257,43 @@ fun test_uda_revert_create_object_zero_timelock() {
             secret_hash,
             SWAP_AMOUNT,
             0, // Zero timelock
+            vector::empty<u8>(),
+            &mut registry_mapping,
+            &mut registry,
+            DEADLINE,
+            &clock,
+            ts::ctx(&mut scenario),
+        );
+
+        ts::return_shared(registry_mapping);
+        ts::return_shared(registry);
+    };
+
+    clock::destroy_for_testing(clock);
+    ts::end(scenario);
+}
+
+#[test]
+#[expected_failure(abort_code = UDA::EInvalidTimelock)]
+fun test_uda_revert_create_object_large_timelock() {
+    let mut scenario = setup();
+    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
+
+    let (_, secret_hash) = generate_secret();
+    let (_initiator_pk, initiator_address, _redeemer_pk, redeemer_address) = generate_keypair();
+
+    ts::next_tx(&mut scenario, FUNDER);
+    {
+        let mut registry_mapping = ts::take_shared<RegistryMapping>(&scenario);
+        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+
+        // This should fail due to large timelock
+        UDA::create_object<SUI>(
+            initiator_address,
+            redeemer_address,
+            secret_hash,
+            SWAP_AMOUNT,
+            604800000 + 1, // Large timelock
             vector::empty<u8>(),
             &mut registry_mapping,
             &mut registry,
@@ -312,8 +349,8 @@ fun test_uda_revert_create_object_invalid_secret_hash_length() {
 
 // Test zero deadline validation
 #[test]
-#[expected_failure(abort_code = UDA::EZeroDeadline)]
-fun test_uda_revert_create_object_zero_deadline() {
+#[expected_failure(abort_code = UDA::EInvalidDeadline)]
+fun test_uda_revert_create_object_small_deadline() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
@@ -325,7 +362,7 @@ fun test_uda_revert_create_object_zero_deadline() {
         let mut registry_mapping = ts::take_shared<RegistryMapping>(&scenario);
         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
 
-        // This should fail due to zero deadline
+        // This should fail due to small deadline
         UDA::create_object<SUI>(
             initiator_address,
             redeemer_address,
@@ -335,7 +372,7 @@ fun test_uda_revert_create_object_zero_deadline() {
             vector::empty<u8>(),
             &mut registry_mapping,
             &mut registry,
-            0, // Zero deadline
+            DEADLINE - 1, // Small deadline
             &clock,
             ts::ctx(&mut scenario),
         );
@@ -348,9 +385,9 @@ fun test_uda_revert_create_object_zero_deadline() {
     ts::end(scenario);
 }
 
-// Test deadline >= 2 hours validation
+// Test deadline >= 7 days
 #[test]
-#[expected_failure(abort_code = UDA::EZeroDeadline)]
+#[expected_failure(abort_code = UDA::EInvalidDeadline)]
 fun test_uda_revert_create_object_big_deadline() {
     let mut scenario = setup();
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
@@ -373,7 +410,7 @@ fun test_uda_revert_create_object_big_deadline() {
             vector::empty<u8>(),
             &mut registry_mapping,
             &mut registry,
-            7200001, // >2 hours deadline
+            604800001, // >= 7 days deadline
             &clock,
             ts::ctx(&mut scenario),
         );
@@ -622,82 +659,6 @@ fun test_uda_add_and_get_reg_id() {
     ts::end(scenario);
 }
 
-// Test edge case: deadline exactly at 2 hours (should fail)
-#[test]
-#[expected_failure(abort_code = UDA::EZeroDeadline)]
-fun test_uda_revert_create_object_exact_2_hour_deadline() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_, secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, _redeemer_pk, redeemer_address) = generate_keypair();
-
-    ts::next_tx(&mut scenario, FUNDER);
-    {
-        let mut registry_mapping = ts::take_shared<RegistryMapping>(&scenario);
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-
-        // This should fail due to exactly 2 hours deadline
-        UDA::create_object<SUI>(
-            initiator_address,
-            redeemer_address,
-            secret_hash,
-            SWAP_AMOUNT,
-            TIMELOCK,
-            vector::empty<u8>(),
-            &mut registry_mapping,
-            &mut registry,
-            7200000, // Exactly 2 hours deadline
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry_mapping);
-        ts::return_shared(registry);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-// Test edge case: timelock exactly at 7 days (should fail)
-#[test]
-#[expected_failure(abort_code = UDA::EInvalidTimelock)]
-fun test_uda_revert_create_object_exact_7_day_timelock() {
-    let mut scenario = setup();
-    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_, secret_hash) = generate_secret();
-    let (_initiator_pk, initiator_address, _redeemer_pk, redeemer_address) = generate_keypair();
-
-    ts::next_tx(&mut scenario, FUNDER);
-    {
-        let mut registry_mapping = ts::take_shared<RegistryMapping>(&scenario);
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-
-        // This should fail due to exactly 7 days timelock
-        UDA::create_object<SUI>(
-            initiator_address,
-            redeemer_address,
-            secret_hash,
-            SWAP_AMOUNT,
-            604800001, // Exactly 7 days + 1ms timelock
-            vector::empty<u8>(),
-            &mut registry_mapping,
-            &mut registry,
-            DEADLINE,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-
-        ts::return_shared(registry_mapping);
-        ts::return_shared(registry);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
 fun fund_uda(amount: u64, scenario: &mut Scenario, uda_id: address): ID {
     let mint_coins_id;
     ts::next_tx(scenario, FUNDER);
@@ -815,6 +776,146 @@ fun test_uda_recover_coins_not_initialized() {
     ts::end(scenario);
 }
 
+// Test successful coin recovery after deadline
+#[test]
+fun test_uda_automatic_recovery_after_initializing() {
+    let mut scenario = setup();
+    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
+
+    let (_initiator_pk, initiator_address, _redeemer_pk, redeemer_address) = generate_keypair();
+
+    // Create UDA object
+    let uda_id = create_test_uda_object(
+        &mut scenario,
+        &clock,
+        initiator_address,
+        redeemer_address,
+        SWAP_AMOUNT,
+        TIMELOCK,
+        DEADLINE,
+    );
+
+    let mint_coins_id = fund_uda(SWAP_AMOUNT*2, &mut scenario, uda_id);
+
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        let mut uda_obj = ts::take_shared<InitiateObject<SUI>>(&scenario);
+        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+        let registry_mapping = ts::take_shared<RegistryMapping>(&scenario);
+        let receiving_coin = ts::receiving_ticket_by_id<Coin<SUI>>(mint_coins_id);
+        let sent = vector::singleton<Receiving<Coin<SUI>>>(receiving_coin);
+        UDA::initialize<SUI>(
+            &mut uda_obj,
+            sent,
+            &mut registry,
+            &clock,
+            ts::ctx(&mut scenario),
+        );
+        ts::return_shared(uda_obj);
+        ts::return_shared(registry);
+        ts::return_shared(registry_mapping);
+    };
+
+    let effects = ts::next_tx(&mut scenario, ADMIN);
+    assert!(effects.num_user_events() == 2, 0);
+
+    ts::next_tx(&mut scenario, initiator_address);
+    {
+        let coins = ts::take_from_sender<Coin<SUI>>(&scenario);
+        assert!(coin::value(&coins) == SWAP_AMOUNT, 0);
+        ts::return_to_sender(&scenario, coins);
+    };
+
+    clock::destroy_for_testing(clock);
+    ts::end(scenario);
+}
+
+// Test successful coin recovery after deadline
+#[test]
+fun test_uda_send_and_recover_coins_after_initializing() {
+    let mut scenario = setup();
+    let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
+
+    let (_initiator_pk, initiator_address, _redeemer_pk, redeemer_address) = generate_keypair();
+
+    // Create UDA object
+    let uda_id = create_test_uda_object(
+        &mut scenario,
+        &clock,
+        initiator_address,
+        redeemer_address,
+        SWAP_AMOUNT,
+        TIMELOCK,
+        DEADLINE,
+    );
+
+    let mint_coins_id = fund_uda(SWAP_AMOUNT, &mut scenario, uda_id);
+
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        let mut uda_obj = ts::take_shared<InitiateObject<SUI>>(&scenario);
+        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+        let registry_mapping = ts::take_shared<RegistryMapping>(&scenario);
+        let receiving_coin = ts::receiving_ticket_by_id<Coin<SUI>>(mint_coins_id);
+        let sent = vector::singleton<Receiving<Coin<SUI>>>(receiving_coin);
+        UDA::initialize<SUI>(
+            &mut uda_obj,
+            sent,
+            &mut registry,
+            &clock,
+            ts::ctx(&mut scenario),
+        );
+        ts::return_shared(uda_obj);
+        ts::return_shared(registry);
+        ts::return_shared(registry_mapping);
+    };
+
+    let effects = ts::next_tx(&mut scenario, ADMIN);
+    assert!(effects.num_user_events() == 2, 0);
+
+    ts::next_tx(&mut scenario, initiator_address);
+    {
+        let coins = ts::take_from_sender<Coin<SUI>>(&scenario);
+        assert!(coin::value(&coins) == 0, 0);
+        ts::return_to_sender(&scenario, coins);
+    };
+
+    // Add extra coins to the UDA
+    let test_coins: u64 = 12345;
+    fund_uda(test_coins, &mut scenario, uda_id);
+
+    // Advance time past deadline
+    {
+        clock::increment_for_testing(&mut clock, (DEADLINE + 1000) as u64);
+    };
+
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        let mut uda_obj = ts::take_shared<InitiateObject<SUI>>(&scenario);
+        let coins_to_recover = ts::take_from_address<Coin<SUI>>(&scenario, uda_id);
+        let coins_to_recover_id = object::id(&coins_to_recover);
+        let receiving_coins_to_recover = ts::receiving_ticket_by_id<Coin<SUI>>(coins_to_recover_id);
+        ts::return_to_address(uda_id, coins_to_recover);
+        UDA::recover_coins<SUI>(
+            &mut uda_obj,
+            vector::singleton<Receiving<Coin<SUI>>>(receiving_coins_to_recover),
+            &clock,
+            ts::ctx(&mut scenario),
+        );
+        ts::return_shared(uda_obj);
+    };
+
+    ts::next_tx(&mut scenario, initiator_address);
+    {
+        let coins = ts::take_from_sender<Coin<SUI>>(&scenario);
+        assert!(coin::value(&coins) == test_coins, 0);
+        ts::return_to_sender(&scenario, coins);
+    };
+
+    clock::destroy_for_testing(clock);
+    ts::end(scenario);
+}
+
 // Test attempting to initialize with zero coins
 #[test]
 #[expected_failure(abort_code = UDA::EInvalidCoins)]
@@ -859,7 +960,7 @@ fun test_uda_revert_initialize_zero_coins() {
     ts::end(scenario);
 }
 
-// Test attempting to initialize with zero coins
+// Test attempting to initialize with insufficient funds
 #[test]
 #[expected_failure(abort_code = UDA::EInsufficientFunds)]
 fun test_uda_revert_initialize_insufficient_funds() {
@@ -880,56 +981,6 @@ fun test_uda_revert_initialize_insufficient_funds() {
     );
 
     let mint_coins_id = fund_uda(SWAP_AMOUNT-1, &mut scenario, uda_id);
-
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mut uda_obj = ts::take_shared<InitiateObject<SUI>>(&scenario);
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let registry_mapping = ts::take_shared<RegistryMapping>(&scenario);
-        let receiving_coin = ts::receiving_ticket_by_id<Coin<SUI>>(mint_coins_id);
-        UDA::initialize<SUI>(
-            &mut uda_obj,
-            vector::singleton<Receiving<Coin<SUI>>>(receiving_coin),
-            &mut registry,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-        ts::return_shared(uda_obj);
-        ts::return_shared(registry);
-        ts::return_shared(registry_mapping);
-    };
-
-    clock::destroy_for_testing(clock);
-    ts::end(scenario);
-}
-
-// Test attempting to initialize after deadline expired
-#[test]
-#[expected_failure(abort_code = UDA::EDeadlineExpired)]
-fun test_uda_revert_initialize_after_deadline() {
-    let mut scenario = setup();
-    let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
-
-    let (_initiator_pk, initiator_address, _redeemer_pk, redeemer_address) = generate_keypair();
-
-    // Create UDA object
-    let uda_id = create_test_uda_object(
-        &mut scenario,
-        &clock,
-        initiator_address,
-        redeemer_address,
-        SWAP_AMOUNT,
-        TIMELOCK,
-        DEADLINE,
-    );
-
-    let mint_coins_id = fund_uda(SWAP_AMOUNT, &mut scenario, uda_id);
-
-    // Advance time past deadline
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        clock::increment_for_testing(&mut clock, (DEADLINE + 1000) as u64);
-    };
 
     ts::next_tx(&mut scenario, ADMIN);
     {
@@ -1085,7 +1136,7 @@ fun test_uda_initialize_multiple_coins() {
         ts::return_shared(registry);
         ts::return_shared(registry_mapping);
     };
-    
+
     let effects = ts::next_tx(&mut scenario, ADMIN);
     assert!(effects.num_user_events() == 2, 0);
 
@@ -1095,7 +1146,7 @@ fun test_uda_initialize_multiple_coins() {
 
 // Test successful recovery with multiple coins
 #[test]
-fun test_uda_recover_coins_multiple_coins() {
+fun test_uda_recover_coins_multiple_coins_not_initialized() {
     let mut scenario = setup();
     let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
@@ -1114,30 +1165,6 @@ fun test_uda_recover_coins_multiple_coins() {
     let mint_coins_id1 = fund_uda(SWAP_AMOUNT/2, &mut scenario, uda_id);
     let mint_coins_id2 = fund_uda(SWAP_AMOUNT/2, &mut scenario, uda_id);
 
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let mut uda_obj = ts::take_shared<InitiateObject<SUI>>(&scenario);
-        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let registry_mapping = ts::take_shared<RegistryMapping>(&scenario);
-        let receiving_coin1 = ts::receiving_ticket_by_id<Coin<SUI>>(mint_coins_id1);
-        let receiving_coin2 = ts::receiving_ticket_by_id<Coin<SUI>>(mint_coins_id2);
-        let mut sent = vector::singleton<Receiving<Coin<SUI>>>(receiving_coin1);
-        vector::push_back(&mut sent, receiving_coin2);
-        UDA::initialize<SUI>(
-            &mut uda_obj,
-            sent,
-            &mut registry,
-            &clock,
-            ts::ctx(&mut scenario),
-        );
-        ts::return_shared(uda_obj);
-        ts::return_shared(registry);
-        ts::return_shared(registry_mapping);
-    };
-    
-    let effects = ts::next_tx(&mut scenario, ADMIN);
-    assert!(effects.num_user_events() == 2, 0);
-
     {
         clock::increment_for_testing(&mut clock, (DEADLINE + 1) as u64);
     };
@@ -1146,14 +1173,22 @@ fun test_uda_recover_coins_multiple_coins() {
 
     {
         let mut uda_obj = ts::take_shared<InitiateObject<SUI>>(&scenario);
-        let coins_to_recover = ts::ids_for_address<Coin<SUI>>(uda_id);
-        let mut sent
-        let coins_to_recover_id = object::id(&coins_to_recover);
-        let receiving_coins_to_recover = ts::receiving_ticket_by_id<Coin<SUI>>(coins_to_recover_id);
-        ts::return_to_address(uda_id, coins_to_recover);
+        let mut coins_to_recover = ts::ids_for_address<Coin<SUI>>(uda_id);
+        assert!(vector::length(&coins_to_recover) == 2, 0);
+        let mut sent = vector::empty<Receiving<Coin<SUI>>>();
+        while (vector::length(&coins_to_recover) > 0) {
+            let coin = ts::take_from_address_by_id<Coin<SUI>>(
+                &scenario,
+                uda_id,
+                vector::pop_back(&mut coins_to_recover),
+            );
+            let receiving_coin = ts::receiving_ticket_by_id<Coin<SUI>>(object::id(&coin));
+            vector::push_back(&mut sent, receiving_coin);
+            ts::return_to_address(uda_id, coin);
+        };
         UDA::recover_coins<SUI>(
             &mut uda_obj,
-            vector::singleton<Receiving<Coin<SUI>>>(receiving_coins_to_recover),
+            sent,
             &clock,
             ts::ctx(&mut scenario),
         );
@@ -1165,6 +1200,252 @@ fun test_uda_recover_coins_multiple_coins() {
         let coins = ts::take_from_sender<Coin<SUI>>(&scenario);
         assert!(coin::value(&coins) == SWAP_AMOUNT, 0);
         ts::return_to_sender(&scenario, coins);
+    };
+
+    clock::destroy_for_testing(clock);
+    ts::end(scenario);
+}
+
+// Test attempting to create duplicate order
+#[test]
+#[expected_failure(abort_code = UDA::EDuplicateOrder)]
+fun test_uda_revert_create_object_duplicate_order() {
+    let mut scenario = setup();
+    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
+
+    let (_, secret_hash) = generate_secret();
+    let (_initiator_pk, initiator_address, _redeemer_pk, redeemer_address) = generate_keypair();
+
+    let uda_id = create_test_uda_object(
+        &mut scenario,
+        &clock,
+        initiator_address,
+        redeemer_address,
+        SWAP_AMOUNT,
+        TIMELOCK,
+        DEADLINE,
+    );
+
+    let mint_coins_id = fund_uda(SWAP_AMOUNT, &mut scenario, uda_id);
+
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        let mut uda_obj = ts::take_shared<InitiateObject<SUI>>(&scenario);
+        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+        let registry_mapping = ts::take_shared<RegistryMapping>(&scenario);
+        let receiving_coin = ts::receiving_ticket_by_id<Coin<SUI>>(mint_coins_id);
+        UDA::initialize<SUI>(
+            &mut uda_obj,
+            vector::singleton<Receiving<Coin<SUI>>>(receiving_coin),
+            &mut registry,
+            &clock,
+            ts::ctx(&mut scenario),
+        );
+        ts::return_shared(uda_obj);
+        ts::return_shared(registry);
+        ts::return_shared(registry_mapping);
+    };
+
+    // Try to create second UDA object with same parameters (should fail due to duplicate order)
+    let uda_id2 = create_test_uda_object(
+        &mut scenario,
+        &clock,
+        initiator_address,
+        redeemer_address,
+        SWAP_AMOUNT,
+        TIMELOCK,
+        DEADLINE,
+    );
+
+    clock::destroy_for_testing(clock);
+    ts::end(scenario);
+}
+
+// Test attempting to use wrong registry
+#[test]
+#[expected_failure(abort_code = UDA::EInvalidRegistry)]
+fun test_uda_revert_create_uda_wrong_registry() {
+    let mut scenario = setup();
+    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
+
+    let (_initiator_pk, initiator_address, _redeemer_pk, redeemer_address) = generate_keypair();
+
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        // Create a different registry to use (this should cause EInvalidRegistry)
+        AtomicSwap::create_orders_registry<SUI>(ts::ctx(&mut scenario));
+    };
+
+    // Create UDA object
+    let uda_id = create_test_uda_object(
+        &mut scenario,
+        &clock,
+        initiator_address,
+        redeemer_address,
+        SWAP_AMOUNT,
+        TIMELOCK,
+        DEADLINE,
+    );
+
+    clock::destroy_for_testing(clock);
+    ts::end(scenario);
+}
+
+// Test attempting to use wrong registry
+#[test]
+#[expected_failure(abort_code = UDA::EInvalidRegistry)]
+fun test_uda_revert_initialize_wrong_registry() {
+    let mut scenario = setup();
+    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
+
+    let (_initiator_pk, initiator_address, _redeemer_pk, redeemer_address) = generate_keypair();
+
+    // Create UDA object
+    let uda_id = create_test_uda_object(
+        &mut scenario,
+        &clock,
+        initiator_address,
+        redeemer_address,
+        SWAP_AMOUNT,
+        TIMELOCK,
+        DEADLINE,
+    );
+
+    let mint_coins_id = fund_uda(SWAP_AMOUNT, &mut scenario, uda_id);
+
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        // Create a different registry to use (this should cause EInvalidRegistry)
+        AtomicSwap::create_orders_registry<SUI>(ts::ctx(&mut scenario));
+    };
+
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        let mut uda_obj = ts::take_shared<InitiateObject<SUI>>(&scenario);
+        let registry_mapping = ts::take_shared<RegistryMapping>(&scenario);
+        let receiving_coin = ts::receiving_ticket_by_id<Coin<SUI>>(mint_coins_id);
+
+        let mut wrong_registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+
+        UDA::initialize<SUI>(
+            &mut uda_obj,
+            vector::singleton<Receiving<Coin<SUI>>>(receiving_coin),
+            &mut wrong_registry,
+            &clock,
+            ts::ctx(&mut scenario),
+        );
+        ts::return_shared(uda_obj);
+        ts::return_shared(wrong_registry);
+        ts::return_shared(registry_mapping);
+    };
+
+    clock::destroy_for_testing(clock);
+    ts::end(scenario);
+}
+
+// Full flow test: UDA created, UDA funded (multi coin), UDA initialized -> Order created + Excess automatically recovered, Order redeemeed
+#[test]
+fun test_uda_complete_flow() {
+    let mut scenario = setup();
+    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
+
+    let (_initiator_pk, initiator_address, _redeemer_pk, redeemer_address) = generate_keypair();
+
+    let (secret, secret_hash) = generate_secret();
+
+    let order_id;
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        let mut registry_mapping = ts::take_shared<RegistryMapping>(&scenario);
+        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+
+        UDA::create_object<SUI>(
+            initiator_address,
+            redeemer_address,
+            secret_hash,
+            SWAP_AMOUNT,
+            TIMELOCK,
+            vector::empty<u8>(),
+            &mut registry_mapping,
+            &mut registry,
+            DEADLINE,
+            &clock,
+            ts::ctx(&mut scenario),
+        );
+        
+        ts::return_shared<RegistryMapping>(registry_mapping);
+        ts::return_shared(registry);
+    };
+
+    let uda_id;
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        // Get the UDA object ID from the shared objects
+        let uda_obj = ts::take_shared<InitiateObject<SUI>>(&scenario);
+        uda_id = UDA::get_uda_id(&uda_obj);
+        ts::return_shared(uda_obj);
+    };
+
+    let mint_coins_id1 = fund_uda(SWAP_AMOUNT/2, &mut scenario, uda_id);
+    let mint_coins_id2 = fund_uda(SWAP_AMOUNT, &mut scenario, uda_id);
+    let mint_coins_id3 = fund_uda(SWAP_AMOUNT/2, &mut scenario, uda_id);
+
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        let mut uda_obj = ts::take_shared<InitiateObject<SUI>>(&scenario);
+        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+        let registry_mapping = ts::take_shared<RegistryMapping>(&scenario);
+        let receiving_coin1 = ts::receiving_ticket_by_id<Coin<SUI>>(mint_coins_id1);
+        let receiving_coin2 = ts::receiving_ticket_by_id<Coin<SUI>>(mint_coins_id2);
+        let receiving_coin3 = ts::receiving_ticket_by_id<Coin<SUI>>(mint_coins_id3);
+        let mut sent = vector::singleton<Receiving<Coin<SUI>>>(receiving_coin1);
+        vector::push_back(&mut sent, receiving_coin2);
+        vector::push_back(&mut sent, receiving_coin3);
+        UDA::initialize<SUI>(
+            &mut uda_obj,
+            sent,
+            &mut registry,
+            &clock,
+            ts::ctx(&mut scenario),
+        );
+        ts::return_shared(uda_obj);
+        ts::return_shared(registry);
+        ts::return_shared(registry_mapping);
+    };
+
+    ts::next_tx(&mut scenario, ADMIN);
+    {
+        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+        let order_id = AtomicSwap::generate_order_id(
+            secret_hash,
+            initiator_address,
+            redeemer_address,
+            TIMELOCK,
+            SWAP_AMOUNT,
+            &registry,
+        );
+        AtomicSwap::redeem<SUI>(
+            &mut registry,
+            order_id,
+            secret,
+            ts::ctx(&mut scenario),
+        );
+        ts::return_shared(registry);
+    };
+
+    let effects = ts::next_tx(&mut scenario, redeemer_address);
+    assert!(effects.num_user_events() == 1, 0);
+    {
+        let redeemed_bal = ts::take_from_sender<Coin<SUI>>(&scenario);
+        assert!(coin::value(&redeemed_bal) == SWAP_AMOUNT, 0);
+        ts::return_to_sender<Coin<SUI>>(&scenario, redeemed_bal);
+    };
+
+    ts::next_tx(&mut scenario, initiator_address);
+    {
+        let recovered_bal = ts::take_from_sender<Coin<SUI>>(&scenario);
+        assert!(coin::value(&recovered_bal) == SWAP_AMOUNT, 0);
+        ts::return_to_sender<Coin<SUI>>(&scenario, recovered_bal);
     };
 
     clock::destroy_for_testing(clock);

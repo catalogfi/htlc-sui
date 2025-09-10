@@ -13,18 +13,16 @@ use sui::transfer::Receiving;
 const EInvalidRegistry: u64 = 1;
 const EDeadlineNotYetExpired: u64 = 2;
 const EInvalidCoins: u64 = 3;
-const EDeadlineExpired: u64 = 4;
-const EZeroAmount: u64 = 5;
-const EZeroTimelock: u64 = 6;
-const EInvalidSecretHashLength: u64 = 7;
-const EZeroDeadline: u64 = 8;
-const EInvalidTimelock: u64 = 9;
-const ESameInitiatorRedeemer: u64 = 10;
-const EZeroAddressInitiator: u64 = 11;
-const EZeroAddressRedeemer: u64 = 12;
-const ESameFunderRedeemer: u64 = 13;
-const EDuplicateOrder: u64 = 14;
-const EInsufficientFunds: u64 = 15;
+const EZeroAmount: u64 = 4;
+const EInvalidTimelock: u64 = 5;
+const EInvalidSecretHashLength: u64 = 6;
+const EInvalidDeadline: u64 = 7;
+const ESameInitiatorRedeemer: u64 = 8;
+const EZeroAddressInitiator: u64 = 9;
+const EZeroAddressRedeemer: u64 = 10;
+const ESameFunderRedeemer: u64 = 11;
+const EDuplicateOrder: u64 = 12;
+const EInsufficientFunds: u64 = 13;
 
 public struct UDACreated has copy, drop {
     reg_id: address,
@@ -154,11 +152,10 @@ public fun initialize<CoinType>(
     ctx: &mut TxContext,
 ) {
     assert!(sent.length() > 0, EInvalidCoins);
-    // assert!(clock::timestamp_ms(clock) as u256 < obj.created_at + obj.deadline, EDeadlineExpired);
     let (reg_address, reg) = AtomicSwap::get_order_reg_address(reg);
     assert!(reg_address == obj.reg_address, EInvalidRegistry);
     let mut coin = merge_coins(obj, sent, ctx);
-    assert!(coin::value(&coin) == obj.amount, EInsufficientFunds);
+    assert!(coin::value(&coin) >= obj.amount, EInsufficientFunds);
     let split_coin = coin::split<CoinType>(&mut coin, obj.amount, ctx);
     AtomicSwap::initiate<CoinType>(
         reg,
@@ -231,10 +228,9 @@ fun safe_params<CoinType>(
     ctx: &TxContext,
 ) {
     assert!(amount > 0, EZeroAmount);
-    assert!(timelock > 0, EZeroTimelock);
+    assert!(timelock > 0 && timelock <= 604800000, EInvalidTimelock);
     assert!(vector::length(&secret_hash) == 32, EInvalidSecretHashLength);
-    assert!(deadline > 0 && deadline < 7200000, EZeroDeadline);
-    assert!(timelock > 0 && timelock < 604800001, EInvalidTimelock);
+    assert!(deadline >= 3600000 && deadline <= 604800000, EInvalidDeadline);
     assert!(initiator != redeemer, ESameInitiatorRedeemer);
     assert!(initiator != @0x0, EZeroAddressInitiator);
     assert!(redeemer != @0x0, EZeroAddressRedeemer);
