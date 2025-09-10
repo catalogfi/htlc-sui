@@ -23,6 +23,8 @@ const ESameInitiatorRedeemer: u64 = 10;
 const EZeroAddressInitiator: u64 = 11;
 const EZeroAddressRedeemer: u64 = 12;
 const ESameFunderRedeemer: u64 = 13;
+const EDuplicateOrder: u64 = 14;
+const EInsufficientFunds: u64 = 15;
 
 public struct UDACreated has copy, drop {
     reg_id: address,
@@ -51,7 +53,7 @@ public struct InitiateObject<phantom CoinType> has key, store {
     amount: u64,
     timelock: u256,
     destination_data: vector<u8>,
-    reg_id: address,
+    reg_address: address,
     created_at: u256,
     deadline: u256,
 }
@@ -71,7 +73,7 @@ fun init(ctx: &mut TxContext) {
         table: table::new(ctx),
     };
     let registry_id = object::uid_to_address(&valid_registry.id);
-    transfer::public_transfer(valid_registry, tx_context::sender(ctx));
+    transfer::share_object(valid_registry);
     event::emit(TableMapping {
         mapping_id: registry_id,
     });
@@ -84,6 +86,9 @@ public fun add_reg_id<CoinType>(
     _ctx: &mut TxContext,
 ) {
     let tn = type_name::with_defining_ids<CoinType>();
+    if (table::contains(&obj.table, tn)) {
+        table::remove(&mut obj.table, tn);
+    };
     table::add(&mut obj.table, tn, mapped_addr);
 }
 
@@ -100,12 +105,25 @@ public fun create_object<CoinType>(
     timelock: u256,
     destination_data: vector<u8>,
     valid_registry: &mut RegistryMapping,
+    reg: &mut AtomicSwap::OrdersRegistry<CoinType>,
     deadline: u256,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    safe_params(initiator, redeemer, amount, timelock, secret_hash, deadline, ctx);
-    let reg_id = get_reg_id<CoinType>(valid_registry);
+    let valid_reg_address = get_reg_id<CoinType>(valid_registry);
+    let (reg_address, reg) = AtomicSwap::get_order_reg_address(reg);
+    safe_params(
+        initiator,
+        redeemer,
+        amount,
+        timelock,
+        secret_hash,
+        deadline,
+        valid_reg_address,
+        reg,
+        ctx,
+    );
+    assert!(reg_address == valid_reg_address, EInvalidRegistry);
     let obj = InitiateObject<CoinType> {
         id: object::new(ctx),
         initiator,
@@ -114,7 +132,7 @@ public fun create_object<CoinType>(
         amount,
         timelock,
         destination_data,
-        reg_id,
+        reg_address: valid_reg_address,
         created_at: clock::timestamp_ms(clock) as u256,
         deadline,
     };
@@ -122,7 +140,7 @@ public fun create_object<CoinType>(
     let initiator = obj.initiator;
     transfer::share_object(obj);
     event::emit(UDACreated {
-        reg_id,
+        reg_id: valid_reg_address,
         uda_id,
         initiator,
     });
@@ -132,15 +150,15 @@ public fun initialize<CoinType>(
     obj: &mut InitiateObject<CoinType>,
     sent: vector<Receiving<Coin<CoinType>>>,
     reg: &mut AtomicSwap::OrdersRegistry<CoinType>,
-    _valid_registry: &mut RegistryMapping,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
     assert!(sent.length() > 0, EInvalidCoins);
-    assert!(clock::timestamp_ms(clock) as u256 < obj.created_at + obj.deadline, EDeadlineExpired);
-    let (reg_id, reg) = AtomicSwap::get_order_reg_address(reg);
-    assert!(reg_id == obj.reg_id, EInvalidRegistry);
+    // assert!(clock::timestamp_ms(clock) as u256 < obj.created_at + obj.deadline, EDeadlineExpired);
+    let (reg_address, reg) = AtomicSwap::get_order_reg_address(reg);
+    assert!(reg_address == obj.reg_address, EInvalidRegistry);
     let mut coin = merge_coins(obj, sent, ctx);
+    assert!(coin::value(&coin) == obj.amount, EInsufficientFunds);
     let split_coin = coin::split<CoinType>(&mut coin, obj.amount, ctx);
     AtomicSwap::initiate<CoinType>(
         reg,
@@ -201,13 +219,15 @@ public fun recover_coins<CoinType>(
     sui::pay::join_vec_and_transfer(coins, obj.initiator);
 }
 
-fun safe_params(
+fun safe_params<CoinType>(
     initiator: address,
     redeemer: address,
     amount: u64,
     timelock: u256,
     secret_hash: vector<u8>,
     deadline: u256,
+    reg_id: address,
+    reg: &AtomicSwap::OrdersRegistry<CoinType>,
     ctx: &TxContext,
 ) {
     assert!(amount > 0, EZeroAmount);
@@ -219,6 +239,15 @@ fun safe_params(
     assert!(initiator != @0x0, EZeroAddressInitiator);
     assert!(redeemer != @0x0, EZeroAddressRedeemer);
     assert!(tx_context::sender(ctx) != redeemer, ESameFunderRedeemer);
+    let order_id = AtomicSwap::create_order_id(
+        secret_hash,
+        initiator,
+        redeemer,
+        timelock,
+        amount,
+        reg_id,
+    );
+    assert!(!AtomicSwap::does_order_exist<CoinType>(reg, order_id), EDuplicateOrder);
 }
 
 #[test_only]
@@ -252,7 +281,7 @@ public fun init_for_testing(ctx: &mut TxContext) {
         table: table::new(ctx),
     };
     let registry_id = object::uid_to_address(&valid_registry.id);
-    transfer::public_transfer(valid_registry, tx_context::sender(ctx));
+    transfer::share_object(valid_registry);
     event::emit(TableMapping {
         mapping_id: registry_id,
     });

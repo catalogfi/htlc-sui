@@ -285,7 +285,7 @@ fun safe_params(
 /// @param amount The amount to be locked for the swap
 /// @param reg_id The registry ID the order will be created in.
 /// @return The unique order ID
-fun create_order_id(
+public(package) fun create_order_id(
     secret_hash: vector<u8>,
     initiator: address,
     redeemer: address,
@@ -362,12 +362,20 @@ fun initiate_<CoinType>(
     });
 }
 
-public fun get_order_reg_address<CoinType>(
+public(package) fun get_order_reg_address<CoinType>(
     orders_reg: &mut OrdersRegistry<CoinType>,
 ): (address, &mut OrdersRegistry<CoinType>) {
     let reg_address = object::uid_to_address(&orders_reg.id);
     (reg_address, orders_reg)
 }
+
+public(package) fun does_order_exist<CoinType>(
+    orders_reg: &OrdersRegistry<CoinType>,
+    order_id: vector<u8>,
+): bool {
+    dynamic_field::exists_(&orders_reg.id, order_id)
+}
+
 // // ================================================= Test Only Getters =====================================
 
 #[test_only]
