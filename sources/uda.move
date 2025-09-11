@@ -268,17 +268,5 @@ public fun get_uda_id<CoinType>(obj: &InitiateObject<CoinType>): address {
 
 #[test_only]
 public fun init_for_testing(ctx: &mut TxContext) {
-    let admin = AdminCap {
-        id: object::new(ctx),
-    };
-    transfer::public_transfer(admin, tx_context::sender(ctx));
-    let valid_registry = RegistryMapping {
-        id: object::new(ctx),
-        table: table::new(ctx),
-    };
-    let registry_id = object::uid_to_address(&valid_registry.id);
-    transfer::share_object(valid_registry);
-    event::emit(TableMapping {
-        mapping_id: registry_id,
-    });
+    init(ctx);
 }
