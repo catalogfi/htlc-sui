@@ -110,6 +110,7 @@ public fun create_object<CoinType>(
 ) {
     let valid_reg_address = get_reg_id<CoinType>(valid_registry);
     let (reg_address, reg) = AtomicSwap::get_order_reg_address(reg);
+    assert!(reg_address == valid_reg_address, EInvalidRegistry);
     safe_params(
         initiator,
         redeemer,
@@ -121,7 +122,6 @@ public fun create_object<CoinType>(
         reg,
         ctx,
     );
-    assert!(reg_address == valid_reg_address, EInvalidRegistry);
     let obj = InitiateObject<CoinType> {
         id: object::new(ctx),
         initiator,
