@@ -864,8 +864,7 @@ fun test_instant_refund() {
     ts::next_tx(&mut scenario, redeemer_address);
     {
         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let reg_id = AtomicSwap::get_order_reg_id<SUI>(&registry);
-        let registry_addr = object::uid_to_address(reg_id);
+        let (registry_addr, _) = AtomicSwap::get_order_reg_address<SUI>(&mut registry);
         let _refund_digest = AtomicSwap::instant_refund_digest(order_id, registry_addr);
         AtomicSwap::instant_refund(
             &mut registry,
@@ -908,8 +907,7 @@ fun test_instant_refund_redeemer_called() {
     ts::next_tx(&mut scenario, redeemer_address);
     {
         let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let reg_id = AtomicSwap::get_order_reg_id<SUI>(&registry);
-        let registry_addr = object::uid_to_address(reg_id);
+        let (registry_addr, _) = AtomicSwap::get_order_reg_address<SUI>(&mut registry);
         let _refund_digest = AtomicSwap::instant_refund_digest(order_id, registry_addr);
 
         AtomicSwap::instant_refund(
@@ -1289,38 +1287,14 @@ fun test_encode_function() {
     
     ts::next_tx(&mut scenario, ADMIN);
     {
-        let registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        let reg_id = AtomicSwap::get_order_reg_id<SUI>(&registry);
-        let registry_addr = object::uid_to_address(reg_id);
+        let mut registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
+        let (registry_addr, _) = AtomicSwap::get_order_reg_address<SUI>(&mut registry);
         
         // Test the encode function through instant_refund_digest
         let digest = AtomicSwap::instant_refund_digest(order_id, registry_addr);
         
         // Verify the digest is not empty
         assert!(vector::length(&digest) > 0, 0);
-        
-        ts::return_shared(registry);
-    };
-    
-    ts::end(scenario);
-}
-
-// Test getter functions for better coverage
-#[test]
-fun test_getter_functions() {
-    let mut scenario = setup();
-    
-    ts::next_tx(&mut scenario, ADMIN);
-    {
-        let registry = ts::take_shared<OrdersRegistry<SUI>>(&scenario);
-        
-        // Test get_order_reg_id
-        let reg_id = AtomicSwap::get_order_reg_id<SUI>(&registry);
-        assert!(object::uid_to_inner(reg_id) == object::uid_to_inner(AtomicSwap::get_order_reg_id<SUI>(&registry)), 0);
-        
-        // Test get_refund_typehash
-        let typehash = AtomicSwap::get_refund_typehash();
-        assert!(vector::length(&typehash) == 32, 0);
         
         ts::return_shared(registry);
     };

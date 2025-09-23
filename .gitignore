@@ -1,6 +1,8 @@
 # Build artifacts
 build_output.json
 deployment-*.json
+registry-*.json
+artifacts/
 
 # Node.js
 node_modules/
