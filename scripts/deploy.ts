@@ -104,7 +104,7 @@ async function deploy() {
       if (registryMappingId)
         console.log(`🗺️  udaRegistryMappingId=${registryMappingId}`);
 
-      // Persist detailed per-transaction artifact
+      // Persist detailed per-transaction artifact (full response)
       const artifactsDir = path.join(__dirname, "..", "artifacts");
       if (!fs.existsSync(artifactsDir)) fs.mkdirSync(artifactsDir);
       const publishArtifactPath = path.join(
@@ -143,13 +143,26 @@ async function deploy() {
         objectChanges: result.objectChanges,
       };
 
-      // Reuse artifactsDir for summary output
-      const deploymentPath = path.join(
+      // Human-friendly summary with only essential fields
+      const deploySummary = {
+        kind: "deploy_summary",
+        network: NETWORK,
+        packageId: packageId || null,
+        udaAdminCapId: adminCapId || null,
+        udaRegistryMappingId: registryMappingId || null,
+        txDigest: result.digest,
+        deployer: address,
+        timestamp: new Date().toISOString(),
+      };
+      const deploySummaryPath = path.join(
         artifactsDir,
-        `deployment-${NETWORK}.json`
+        `deploy-summary-${NETWORK}.json`
       );
-      fs.writeFileSync(deploymentPath, JSON.stringify(deploymentInfo, null, 2));
-      console.log(`📄 wrote summary: ${deploymentPath}`);
+      fs.writeFileSync(
+        deploySummaryPath,
+        JSON.stringify(deploySummary, null, 2)
+      );
+      console.log(`📄 wrote summary: ${deploySummaryPath}`);
     } else {
       console.error("❌ Deployment failed!");
       console.error("Effects:", result.effects);

@@ -41,17 +41,19 @@ async function createRegistry() {
     // Resolve packageId from env or deployment file
     let packageId = PACKAGE_ID || "";
     if (!packageId) {
-      const depPath = path.join(
-        __dirname,
-        "..",
-        "artifacts",
-        `deployment-${NETWORK}.json`
-      );
-      if (fs.existsSync(depPath)) {
-        try {
-          const dep = JSON.parse(fs.readFileSync(depPath, "utf8"));
-          packageId = dep.packageId || "";
-        } catch {}
+      const artifactsBase = path.join(__dirname, "..", "artifacts");
+      const candidates = [
+        path.join(artifactsBase, `deploy-summary-${NETWORK}.json`),
+        path.join(artifactsBase, `deployment-${NETWORK}.json`),
+      ];
+      for (const p of candidates) {
+        if (fs.existsSync(p)) {
+          try {
+            const dep = JSON.parse(fs.readFileSync(p, "utf8"));
+            packageId = dep.packageId || "";
+            if (packageId) break;
+          } catch {}
+        }
       }
     }
 
@@ -114,21 +116,24 @@ async function createRegistry() {
       let udaAdminCapId = UDA_ADMIN_CAP_ID_ENV || "";
       let udaRegistryMappingId = UDA_REGISTRY_MAPPING_ID_ENV || "";
 
-      const deploymentPath = path.join(
-        __dirname,
-        "..",
-        "artifacts",
-        `deployment-${NETWORK}.json`
-      );
-      if (fs.existsSync(deploymentPath)) {
-        try {
-          const dep = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
-          udaAdminCapId = udaAdminCapId || dep.udaAdminCapId || dep.adminCapId;
-          udaRegistryMappingId =
-            udaRegistryMappingId ||
-            dep.udaRegistryMappingId ||
-            dep.registryMappingId;
-        } catch {}
+      const artifactsBase = path.join(__dirname, "..", "artifacts");
+      const idSources = [
+        path.join(artifactsBase, `deploy-summary-${NETWORK}.json`),
+        path.join(artifactsBase, `deployment-${NETWORK}.json`),
+      ];
+      for (const p of idSources) {
+        if (fs.existsSync(p)) {
+          try {
+            const dep = JSON.parse(fs.readFileSync(p, "utf8"));
+            udaAdminCapId =
+              udaAdminCapId || dep.udaAdminCapId || dep.adminCapId || "";
+            udaRegistryMappingId =
+              udaRegistryMappingId ||
+              dep.udaRegistryMappingId ||
+              dep.registryMappingId ||
+              "";
+          } catch {}
+        }
       }
 
       if (!udaAdminCapId || !udaRegistryMappingId || !createdRegistryId) {
@@ -231,24 +236,31 @@ async function createRegistry() {
         console.log(`📝 wrote artifact: ${mapArtifactPath}`);
       }
 
-      // Save combined summary
-      const registryInfo = {
+      // Save concise, human-friendly summary with only essential fields
+      const registrySummary = {
+        kind: "registry_summary",
         network: NETWORK,
-        deployer: address,
         packageId: packageId,
         coinType: COIN_TYPE,
         registryId: createdRegistryId || null,
         createRegistryTx: result.digest,
         addRegIdTx: addRegTxDigest,
+        udaAdminCapId: udaAdminCapId || null,
+        udaRegistryMappingId: udaRegistryMappingId || null,
+        signer: address,
         timestamp: new Date().toISOString(),
-        effects: result.effects,
-        objectChanges: result.objectChanges,
       };
 
       // Reuse artifactsDir for summary output
-      const registryPath = path.join(artifactsDir, `registry-${NETWORK}.json`);
-      fs.writeFileSync(registryPath, JSON.stringify(registryInfo, null, 2));
-      console.log(`📄 wrote summary: ${registryPath}`);
+      const registrySummaryPath = path.join(
+        artifactsDir,
+        `registry-summary-${NETWORK}.json`
+      );
+      fs.writeFileSync(
+        registrySummaryPath,
+        JSON.stringify(registrySummary, null, 2)
+      );
+      console.log(`📄 wrote summary: ${registrySummaryPath}`);
     } else {
       console.error("❌ Registry creation failed!");
       console.error("Effects:", result.effects);
