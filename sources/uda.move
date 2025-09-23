@@ -25,14 +25,20 @@ const EDuplicateOrder: u64 = 12;
 const EInsufficientFunds: u64 = 13;
 
 public struct UDACreated has copy, drop {
-    reg_id: address,
     uda_id: address,
-    initiator: address,
+    refund_address: address,
+    reg_id: address,
 }
 
 public struct UDAInitiated has copy, drop {
     uda_id: address,
     secret_hash: string::String,
+}
+
+public struct RegistryAdded has copy, drop {
+    mapping_id: address,
+    reg_id: address,
+    token_id: std::string::String
 }
 
 public struct TableMapping has copy, drop {
@@ -88,6 +94,11 @@ public fun add_reg_id<CoinType>(
         table::remove(&mut obj.table, tn);
     };
     table::add(&mut obj.table, tn, mapped_addr);
+    event::emit(RegistryAdded{
+        mapping_id: object::uid_to_address(&obj.id),
+        reg_id: mapped_addr,
+        token_id: (*type_name::as_string(&tn)).to_string()
+    })
 }
 
 public fun get_reg_id<CoinType>(obj: &RegistryMapping): address {
@@ -138,9 +149,9 @@ public fun create_object<CoinType>(
     let initiator = obj.initiator;
     transfer::share_object(obj);
     event::emit(UDACreated {
-        reg_id: valid_reg_address,
         uda_id,
-        initiator,
+        refund_address: initiator,
+        reg_id: valid_reg_address,
     });
 }
 
